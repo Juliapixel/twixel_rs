@@ -1,6 +1,4 @@
-use log::debug;
-
-use crate::{irc_message::{IRCMessage, IRCMessageFormatter}, connection::{Connection, ClientInfo, Channels}};
+use crate::{irc_message::IRCMessage, connection::{Connection, ClientInfo, Channels}};
 use std::{sync::{Arc, Mutex, Condvar}, collections::VecDeque};
 
 pub struct ClientBuilder {
@@ -44,9 +42,9 @@ impl ClientBuilder {
         self.into()
     }
 
-    pub fn run(self) -> TwitchIRCClient {
+    pub async fn run(self) -> TwitchIRCClient {
         let mut client = self.build();
-        client.run();
+        client.run().await;
         return client;
     }
 }
@@ -56,8 +54,6 @@ impl From<ClientBuilder> for TwitchIRCClient {
         Self {
             client_info: value.client_info.clone(),
             connection: None,
-            outgoing: MessageQueue::new(),
-            incoming: MessageQueue::new(),
         }
     }
 }
@@ -65,8 +61,6 @@ impl From<ClientBuilder> for TwitchIRCClient {
 pub struct TwitchIRCClient {
     connection: Option<Connection>,
     client_info: ClientInfo,
-    pub outgoing: MessageQueue,
-    pub incoming: MessageQueue,
 }
 
 impl TwitchIRCClient {
@@ -74,42 +68,32 @@ impl TwitchIRCClient {
         self.connection.is_some()
     }
 
-    pub fn run(&mut self) {
-        self.connection = Some(Connection::new(self.client_info.clone()));
-
-        let mut receiver_connection = self.connection.as_ref().unwrap().clone();
-        let mut inc = self.incoming.clone();
-        std::thread::spawn(move || {
-            loop {
-                let message = receiver_connection.read().to_string();
-                let irc_msg = IRCMessage::try_from(message.as_str()).unwrap();
-                inc.add_message(irc_msg);
-            }
-        });
-
-        let mut sender_connection = self.connection.as_ref().unwrap().clone();
-        let mut outg = self.outgoing.clone();
-        std::thread::spawn(move || {
-            loop {
-                let message = outg.get_blocking();
-                sender_connection.send(&message.to_string(IRCMessageFormatter::Client));
-            }
-        });
+    pub async fn run(&mut self) {
+        self.connection = Some(Connection::new(self.client_info.clone()).await);
+        self.connection.as_mut().unwrap().run().await;
     }
 
-    pub fn send_message(&mut self, msg: IRCMessage) {
-        self.outgoing.add_message(msg);
+    pub async fn send_message(&mut self, msg: IRCMessage) {
+        if let Some(conn) = &mut self.connection {
+            conn.send(msg).await;
+        }
     }
 
-    pub fn reply_to_message(&mut self, reply: &str, msg: IRCMessage) {
+    pub async fn receive_message(&mut self) -> IRCMessage {
+        if let Some(conn) = &mut self.connection {
+            conn.receive().await
+        } else {
+            panic!("can't receive messages before calling run() on TwitchIRCClient!");
+        }
+    }
+
+    pub async fn reply_to_message(&mut self, reply: &str, msg: IRCMessage) {
         let mut reply = IRCMessage::text(reply, &msg.channel.clone().unwrap());
         reply.add_tag("reply-parent-msg-id", msg.tags.get_message_id().unwrap());
-        self.outgoing.add_message(reply);
+        self.send_message(reply).await;
     }
 
-    pub fn receive_message(&mut self) -> IRCMessage {
-        self.incoming.get_blocking()
-    }
+
 }
 
 #[derive(Clone)]

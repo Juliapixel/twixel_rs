@@ -1,136 +1,177 @@
-use std::{sync::{Arc, Mutex}, net::TcpStream, collections::VecDeque};
+use std::{sync::{Arc, Mutex}, pin::Pin};
 
-use log::info;
-use tungstenite::{WebSocket, stream::MaybeTlsStream};
+use futures_util::{StreamExt, SinkExt, FutureExt};
+use log::{warn, debug};
+use tokio::{net::TcpStream, sync::mpsc::{Sender, Receiver}};
+use tokio_tungstenite::{tungstenite::Message, WebSocketStream, MaybeTlsStream};
+
+use crate::irc_message::IRCMessage;
 
 const TWITCH_IRC_URL: &str = "wss://irc-ws.chat.twitch.tv:443";
 
-#[derive(Clone)]
 pub(crate) struct Connection {
-    socket: Socket,
+    socket: Option<Socket>,
+    received: Option<Receiver<Message>>,
+    sender: Option<Sender<Message>>,
     client_info: ClientInfo
 }
 
 impl Connection {
-    pub fn new(client_info: ClientInfo) -> Self {
+    pub async fn new(client_info: ClientInfo) -> Self {
         Connection {
-            socket: Socket::new(client_info.clone()),
+            socket: None,
+            received: None,
+            sender: None,
             client_info: client_info,
         }
     }
 
-    pub fn join_channel(&mut self, channel: &str) {
+    pub async fn run(&mut self) {
+        let (mut socket, sender) = Socket::new(self.client_info.clone()).await;
+        let (tx, received) = tokio::sync::mpsc::channel(64);
+        self.received = Some(received);
+        self.sender = Some(sender);
+        tokio::spawn(async move {
+            loop {
+                let (status, msg) = socket.receive_or_send().await;
+                match status {
+                    Ok(_) => {
+                        if let Some(received) = msg {
+                            tx.send(received).await.unwrap();
+                        }
+                    },
+                    Err(_) => socket.restart_socket().await,
+                };
+            }
+        });
+    }
+
+    pub async fn send(&mut self, msg: IRCMessage) {
+        if let Some(sender) = &self.sender {
+            sender.send(Message::Text(msg.to_string(crate::irc_message::IRCMessageFormatter::Client))).await.unwrap();
+        } else {
+            warn!("tried to send to socket while it's not running!");
+        }
+    }
+
+    pub async fn receive(&mut self) -> IRCMessage {
+        if let Some(received) = &mut self.received {
+            received.recv().await.unwrap().to_text().unwrap().try_into().unwrap()
+        } else {
+            panic!();
+        }
+    }
+
+    pub async fn join_channel(&mut self, channel: &str) {
         self.client_info.channels.join_channel(channel);
-        self.socket.send(&format!("JOIN #{}", channel));
+        if let Some(sender) = &self.sender {
+            sender.blocking_send(Message::Text(format!("JOIN #{}", channel))).unwrap();
+        } else {
+            warn!("tried to send to socket while it's not running!");
+        }
     }
 
-    pub fn leave_channel(&mut self, channel: &str) {
+    pub async fn leave_channel(&mut self, channel: &str) {
         self.client_info.channels.leave_channel(channel);
-        self.socket.send(&format!("JOIN #{}", channel));
+        if let Some(sender) = &self.sender {
+            sender.blocking_send(Message::Text(format!("PART #{}", channel))).unwrap();
+        } else {
+            warn!("tried to send to socket while it's not running!");
+        }
     }
 
-    pub fn send_pong(&mut self) {
-        self.socket.send("PONG :tmi.twitch.tv")
-    }
-
-    pub fn read(&mut self) -> tungstenite::Message {
-        self.socket.receive_message()
-    }
-
-    pub fn send(&mut self, msg: &str) {
-        self.socket.send(msg);
+    pub async fn send_pong(&mut self) {
+        if let Some(sender) = &self.sender {
+            sender.blocking_send(Message::Text("PONG :tmi.twitch.tv".to_string())).unwrap();
+        } else {
+            warn!("tried to send to socket while it's not running!");
+        }
     }
 }
 
-#[derive(Clone)]
 struct Socket {
-    websocket: Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>,
-    queue: Arc<Mutex<VecDeque<tungstenite::Message>>>,
+    stream: Pin<Box<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
+    outgoing: tokio::sync::mpsc::Receiver<Message>,
     client_info: ClientInfo
 }
 
+enum ReadReceiveError {
+    NoMessage,
+    TungsteniteError(tokio_tungstenite::tungstenite::Error)
+}
+
 impl Socket {
-    fn get_new_socket() -> WebSocket<MaybeTlsStream<TcpStream>> {
-        tungstenite::connect(TWITCH_IRC_URL).unwrap().0
-    }
-
-    pub fn new(client_info: ClientInfo) -> Self {
-        Self {
-            websocket: Arc::new(Mutex::new(Self::start_socket(client_info.clone()))),
-            queue: Arc::new(Mutex::new(VecDeque::new())),
-            client_info: client_info,
-        }
-    }
-
-    pub fn receive_message(&mut self) -> tungstenite::Message {
+    async fn get_new_socket() -> WebSocketStream<MaybeTlsStream<TcpStream>> {
         loop {
-            let mut slock = self.websocket.lock().unwrap();
-            if let Ok(msg) = slock.read_message() {
-                drop(slock);
-                return msg;
-            } else {
-                info!("Reconnecting to twitch IRC Servers.");
-                *slock = Self::start_socket(self.client_info.clone());
+            match tokio_tungstenite::connect_async(TWITCH_IRC_URL).await {
+                Ok(o) => return o.0,
+                Err(_) => {
+                    warn!("failed to connect to twitch servers! retrying...");
+                    continue;
+                },
             }
         }
 
     }
 
-    pub fn send(&mut self, message: &str) {
-        let msg = tungstenite::Message::text(message);
-        self.queue.lock().unwrap().push_back(msg);
-        self.send_from_queue();
+    pub async fn new(client_info: ClientInfo) -> (Self, tokio::sync::mpsc::Sender<Message>) {
+        let stream = Self::start_socket(client_info.clone()).await;
+        let (send, recv) = tokio::sync::mpsc::channel(64);
+        (
+            Self {
+                stream: stream,
+                outgoing: recv,
+                client_info: client_info,
+            },
+            send
+        )
     }
 
-    pub fn send_message(&mut self, message: tungstenite::Message) {
-        self.queue.lock().unwrap().push_back(message);
-    }
-
-    fn send_from_queue(&mut self) {
-        let mut lock  = self.queue.lock().unwrap();
-        if let Some(msg) = lock.pop_front() {
-            drop(lock);
-            let mut slock = self.websocket.lock().unwrap();
-            loop {
-                loop {
-                    let send_result = slock.write_message(msg.clone());
-                    if send_result.is_err() {
-                        info!("Reconnecting to twitch IRC Servers.");
-                        *slock = Self::start_socket(self.client_info.clone());
-                    } else {
-                        break;
+    pub async fn receive_or_send(&mut self) -> (Result<(), ReadReceiveError>, Option<Message>) {
+        let (mut sink, mut stream) = self.stream.take().unwrap().split();
+        let received = futures_util::select! {
+            recv = stream.next().fuse() => {
+                match recv {
+                    Some(received) => {
+                        match received {
+                            Ok(ok) => (Ok(()), Some(ok)),
+                            Err(e) => {
+                                (Err(ReadReceiveError::TungsteniteError(e)), None)
+                            }
+                        }
+                    },
+                    None => {
+                        (Err(ReadReceiveError::NoMessage), None)
                     }
                 }
-                let flush_result = slock.write_pending();
-                if flush_result.is_err() {
-                    info!("Reconnecting to twitch IRC Servers.");
-                    *slock = Self::start_socket(self.client_info.clone());
-                } else {
-                    break;
+            },
+            to_send = self.outgoing.recv().fuse() => {
+                let msg = to_send.unwrap();
+                debug!("sent: {}", &msg);
+                let send = sink.send(msg).await;
+                match send {
+                    Ok(_) => (Ok(()), None),
+                    Err(e) => (Err(ReadReceiveError::TungsteniteError(e)), None)
                 }
-            }
-        }
+            },
+        };
+        self.stream = Box::pin(Some(sink.reunite(stream).unwrap()));
+        return received;
+    }
+
+    async fn restart_socket(&mut self) {
+        warn!("restarting connection to twitch servers.");
+        self.stream = Self::start_socket(self.client_info.clone()).await;
     }
 
     #[allow(unused_must_use)]
-    fn send_from_queue_unchecked(&mut self) {
-        let mut lock  = self.queue.lock().unwrap();
-        if let Some(msg) = lock.pop_front() {
-            let mut slock = self.websocket.lock().unwrap();
-            slock.write_message(msg);
-            slock.write_pending();
-        }
-    }
-
-    #[allow(unused_must_use)]
-    fn start_socket(client_info: ClientInfo) -> WebSocket<MaybeTlsStream<TcpStream>> {
-        let mut new_socket = Self::get_new_socket();
+    async fn start_socket(client_info: ClientInfo) -> Pin<Box<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>> {
+        let mut new_stream = Self::get_new_socket().await;
         let initial_messages = client_info.get_initial_messages();
         for i in initial_messages {
-            new_socket.write_message(i);
-            new_socket.write_pending();
+            new_stream.send(i).await;
         }
-        return new_socket;
+        return Box::pin(Some(new_stream));
     }
 }
 
@@ -150,9 +191,9 @@ impl ClientInfo {
         }
     }
 
-    pub fn get_initial_messages(&self) -> Vec<tungstenite::Message> {
+    pub fn get_initial_messages(&self) -> Vec<Message> {
         let mut out = Vec::new();
-        out.push(tungstenite::Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags")));
+        out.push(Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags")));
         let (nick, pass) = self.get_auth_commands();
         out.push(pass);
         out.push(nick);
@@ -162,10 +203,10 @@ impl ClientInfo {
         return out;
     }
 
-    fn get_auth_commands(&self) -> (tungstenite::Message, tungstenite::Message) {
+    fn get_auth_commands(&self) -> (Message, Message) {
         return (
-            tungstenite::Message::Text(String::from(format!("NICK {}", self.username.lock().unwrap()))),
-            tungstenite::Message::Text(String::from(format!("PASS {}", self.auth_token.lock().unwrap()))),
+            Message::Text(String::from(format!("NICK {}", self.username.lock().unwrap()))),
+            Message::Text(String::from(format!("PASS {}", self.auth_token.lock().unwrap()))),
         )
     }
 }
@@ -192,7 +233,7 @@ impl Channels {
         }
     }
 
-    pub fn join_message(&self) -> Option<tungstenite::Message> {
+    pub fn join_message(&self) -> Option<Message> {
         if self.channels.lock().unwrap().is_empty() {
             return None;
         }
@@ -200,7 +241,7 @@ impl Channels {
         for i in self.channels.lock().unwrap().iter() {
             msg += &format!("#{},", i);
         }
-        return Some(tungstenite::Message::text(msg));
+        return Some(Message::text(msg));
     }
 }
 
