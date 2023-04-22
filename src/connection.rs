@@ -1,7 +1,7 @@
-use std::{sync::{Arc, Mutex}, pin::Pin};
+use std::{sync::{Arc, Mutex}, pin::Pin, ops::DerefMut};
 
 use futures_util::{StreamExt, SinkExt, FutureExt};
-use log::{warn, debug};
+use log::{warn, debug, info};
 use tokio::{net::TcpStream, sync::mpsc::{Sender, Receiver}};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream, MaybeTlsStream};
 
@@ -32,12 +32,19 @@ impl Connection {
         self.received = Some(received);
         self.sender = Some(sender);
         tokio::spawn(async move {
+            info!("Twitch connection loop started");
             loop {
                 let (status, msg) = socket.receive_or_send().await;
                 match status {
                     Ok(_) => {
                         if let Some(received) = msg {
-                            tx.send(received).await.unwrap();
+                            if received.to_text().unwrap().trim() == "PING :tmi.twitch.tv" {
+                                if let Some(stream) = socket.stream.deref_mut() {
+                                    stream.send(Message::Text("PONG :tmi.twitch.tv".to_string())).await.unwrap();
+                                }
+                            } else {
+                                tx.send(received).await.unwrap();
+                            }
                         }
                     },
                     Err(_) => socket.restart_socket().await,
@@ -104,7 +111,9 @@ impl Socket {
     async fn get_new_socket() -> WebSocketStream<MaybeTlsStream<TcpStream>> {
         loop {
             match tokio_tungstenite::connect_async(TWITCH_IRC_URL).await {
-                Ok(o) => return o.0,
+                Ok(o) => {
+                    return o.0;
+                },
                 Err(_) => {
                     warn!("failed to connect to twitch servers! retrying...");
                     continue;
@@ -162,6 +171,7 @@ impl Socket {
     async fn restart_socket(&mut self) {
         warn!("restarting connection to twitch servers.");
         self.stream = Self::start_socket(self.client_info.clone()).await;
+        info!("connection restarted.");
     }
 
     #[allow(unused_must_use)]
