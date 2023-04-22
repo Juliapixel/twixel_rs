@@ -40,8 +40,8 @@ impl Connection {
                         if let Some(received) = msg {
                             if received.to_text().unwrap().trim() == "PING :tmi.twitch.tv" {
                                 if let Some(stream) = socket.stream.deref_mut() {
+                                    debug!("sending keepalive message");
                                     stream.send(Message::Text("PONG :tmi.twitch.tv".to_string())).await.unwrap();
-                                    debug!("keepalive message sent.")
                                 }
                             } else {
                                 tx.send(received).await.unwrap();
