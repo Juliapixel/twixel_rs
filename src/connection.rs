@@ -31,8 +31,8 @@ impl Connection {
         let (tx, received) = tokio::sync::mpsc::channel(64);
         self.received = Some(received);
         self.sender = Some(sender);
+        info!("Twitch connection loop started");
         tokio::spawn(async move {
-            info!("Twitch connection loop started");
             loop {
                 let (status, msg) = socket.receive_or_send().await;
                 match status {
