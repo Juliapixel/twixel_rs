@@ -2,6 +2,7 @@ use std::{sync::{Arc, Mutex}, pin::Pin, ops::DerefMut};
 
 use futures_util::{StreamExt, SinkExt, FutureExt};
 use log::{warn, debug, info};
+use rand::Rng;
 use tokio::{net::TcpStream, sync::mpsc::{Sender, Receiver}};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream, MaybeTlsStream};
 
@@ -186,10 +187,35 @@ impl Socket {
     }
 }
 
+#[derive(Debug, Default)]
+pub enum Auth {
+    OAuth(String),
+    #[default]
+    Anonymous
+}
+
+impl From<Auth> for String {
+    fn from(value: Auth) -> Self {
+        match value {
+            Auth::OAuth(token) => format!("oauth:{}", token),
+            Auth::Anonymous => rand::thread_rng().gen_range(0..1_000_000).to_string(),
+        }
+    }
+}
+
+impl From<&Auth> for String {
+    fn from(value: &Auth) -> Self {
+        match value {
+            Auth::OAuth(token) => format!("oauth:{}", token),
+            Auth::Anonymous => rand::thread_rng().gen_range(0..1_000_000).to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ClientInfo {
     username: Arc<Mutex<String>>,
-    auth_token: Arc<Mutex<String>>,
+    auth_token: Arc<Mutex<Auth>>,
     pub channels: Channels,
 }
 
@@ -197,7 +223,7 @@ impl ClientInfo {
     pub fn new(username: String, token: String) -> Self {
         ClientInfo{
             username: Arc::new(Mutex::new(username)),
-            auth_token: Arc::new(Mutex::new(token)),
+            auth_token: Arc::new(Mutex::new(Auth::OAuth(token))),
             channels: Channels::default(),
         }
     }
@@ -217,7 +243,7 @@ impl ClientInfo {
     fn get_auth_commands(&self) -> (Message, Message) {
         return (
             Message::Text(String::from(format!("NICK {}", self.username.lock().unwrap()))),
-            Message::Text(String::from(format!("PASS {}", self.auth_token.lock().unwrap()))),
+            Message::Text(String::from(format!("PASS {}", String::from(&*self.auth_token.lock().unwrap())))),
         )
     }
 }
