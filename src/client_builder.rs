@@ -1,5 +1,7 @@
 use crate::{irc_message::IRCMessage, connection::{Connection, ClientInfo, Channels}};
 use std::{sync::{Arc, Mutex, Condvar}, collections::VecDeque};
+use log::debug;
+use rand::Rng;
 
 pub struct ClientBuilder {
     client_info: ClientInfo,
@@ -7,10 +9,16 @@ pub struct ClientBuilder {
 
 impl Default for ClientBuilder {
     fn default() -> Self {
+        let mut rng = rand::thread_rng();
+        let mut username = String::from("justinfan");
+        let random = rng.gen_range(1..1_000_000);
+        username += random.to_string().as_str();
+        let pass = rng.gen_range(1..1_000_000).to_string();
+        debug!("new anonymous login created: {} {}", &username, &pass);
         Self {
             client_info: ClientInfo::new(
-                String::from("justinfan123"),
-                String::from("12345")
+                username,
+                pass
             )
         }
     }

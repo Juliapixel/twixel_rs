@@ -13,10 +13,10 @@ log = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 tokio = { version = "1.27", features = ["sync", "rt"] }
 tokio-tungstenite = { version = "0.18", features = ["native-tls"] }
+rand = "0.8"
 
 [dev-dependencies]
 criterion = "0.4"
-rand = "0.8"
 
 [[bench]]
 name = "benches"
