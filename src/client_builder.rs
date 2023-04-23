@@ -31,11 +31,11 @@ impl ClientBuilder {
         }
     }
 
-    pub fn new(username: &str, token: &str) -> Self {
+    pub fn new(username: String, token: String) -> Self {
         Self {
             client_info: ClientInfo::new(
-                String::from(username),
-                String::from(token)
+                username,
+                token
             )
         }
     }
