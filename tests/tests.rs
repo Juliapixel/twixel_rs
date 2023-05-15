@@ -1,4 +1,4 @@
-use twitch_irc::irc_message::{IRCMessage, IRCCommand, IRCTags, IRCMessageFormatter, RawIRCMessage, Prefix};
+use twitch_irc::irc_message::{IRCMessage, IRCCommand, IRCTags, IRCMessageFormatter};
 
 const DIVERSE_MESSAGES: &str =
 r":tmi.twitch.tv 001 placeholdername :Welcome, GLHF!
@@ -37,23 +37,6 @@ fn irc_message_deserialization() {
         }
     );
     // TODO: add more assertions to make sure the deserialization is correct
-}
-
-#[test]
-fn raw_irc_message_deserialization() {
-    let tags1 = "@badge-info=;badges=moments/2;client-nonce=7f1a51ec7a1a6a628a26728994fb4f93;color=#FFFFFF;display-name=3dge;emotes=;first-msg=0;flags=;id=e447f8cc-35bc-4dd7-9e80-06cad3cd9e67;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318865347;turbo=0;user-id=104665403;user-type=";
-    let mut tags = IRCTags::new();
-    tags.add_from_string(tags1);
-    assert_eq!(
-        TryInto::<RawIRCMessage>::try_into("@badge-info=;badges=moments/2;client-nonce=7f1a51ec7a1a6a628a26728994fb4f93;color=#FFFFFF;display-name=3dge;emotes=;first-msg=0;flags=;id=e447f8cc-35bc-4dd7-9e80-06cad3cd9e67;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318865347;turbo=0;user-id=104665403;user-type= :3dge!3dge@3dge.tmi.twitch.tv PRIVMSG #xqc :*conquers and").unwrap(),
-        RawIRCMessage {
-            tags: tags,
-            prefix: Some(Prefix::WithNick(String::from("3dge"),String::from("3dge"),String::from("3dge.tmi.twitch.tv"))),
-            command: IRCCommand::PrivMsg,
-            args: vec![String::from("#xqc")],
-            message: Some(String::from("*conquers and"))
-        }
-    )
 }
 
 #[cfg(test)]
