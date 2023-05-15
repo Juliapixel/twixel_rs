@@ -8,16 +8,11 @@ fn deserialize_irc_message(msg: &str) -> Result<IRCMessage, IRCMessageParseError
     TryInto::<IRCMessage>::try_into(msg)
 }
 
-fn deserialize_shit_ton(c: &mut Criterion) {
-    let files = std::fs::read_dir("F:\\Julia\\twitch_irc\\logs").unwrap();
-    let mut messages: Vec<String> = Vec::new();
+#[cfg(test)]
+pub const SHIT_TON: &'static str = include_str!("../logs/logs.txt");
 
-    for file in files {
-        let logs = std::fs::read_to_string(file.unwrap().path()).unwrap();
-        for line in logs.lines() {
-            messages.push(line.to_string());
-        }
-    }
+fn deserialize_shit_ton(c: &mut Criterion) {
+    let messages: Vec<&str> = SHIT_TON.lines().collect();
 
     c.bench_function("Deserialize a Bunch of xQc's Chat's Logs", |b| b.iter_custom(|iterations| {
         let start = std::time::Instant::now();

@@ -39,20 +39,15 @@ fn irc_message_deserialization() {
     // TODO: add more assertions to make sure the deserialization is correct
 }
 
+#[cfg(test)]
+pub const SHIT_TON: &'static str = include_str!("../logs/logs.txt");
+
 #[test]
 fn test_a_shit_ton() {
-    let files = std::fs::read_dir("F:\\Julia\\twitch_irc\\logs").unwrap();
-    let mut messages: Vec<String> = Vec::new();
-
-    for file in files {
-        let logs = std::fs::read_to_string(file.unwrap().path()).unwrap();
-        for line in logs.lines() {
-            messages.push(line.to_string());
-        }
-    }
+    let messages: Vec<&str> = SHIT_TON.lines().collect();
 
     for msg in messages {
-        TryInto::<IRCMessage>::try_into(msg.as_str()).expect(&msg);
+        TryInto::<IRCMessage>::try_into(msg).expect(&msg);
     }
 }
 
