@@ -95,8 +95,8 @@ impl TwitchIRCClient {
         }
     }
 
-    pub async fn reply_to_message(&mut self, reply: &str, msg: IRCMessage) {
-        let mut reply = IRCMessage::text(reply, &msg.channel.clone().unwrap());
+    pub async fn reply_to_message(&mut self, reply: String, msg: IRCMessage) {
+        let mut reply = IRCMessage::text(reply, msg.channel.clone().unwrap());
         reply.add_tag("reply-parent-msg-id", msg.tags.get_message_id().unwrap());
         self.send_message(reply).await;
     }

@@ -104,13 +104,23 @@ impl IRCMessage {
         }
     }
 
-    pub fn text(message: &str, channel: &str) -> Self {
+    pub fn text(message: String, channel: String) -> Self {
         Self {
             command: IRCCommand::PrivMsg,
-            channel: Some(channel.to_string()),
+            channel: Some(channel),
             nick: None,
-            message: Some(message.to_string()),
+            message: Some(message),
             tags: IRCTags::default(),
+        }
+    }
+
+    pub fn whisper(message: String, channel: String) -> Self {
+        Self {
+            tags: IRCTags::default(),
+            nick: None,
+            command: IRCCommand::Whisper,
+            channel: Some(channel),
+            message: Some(message),
         }
     }
 }
