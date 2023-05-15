@@ -1,7 +1,90 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 use hashbrown::HashMap;
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RawIRCMessage {
+    pub tags: IRCTags,
+    pub prefix: Option<Prefix>,
+    pub command: IRCCommand,
+    pub args: Vec<String>,
+    pub message: Option<String>
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Prefix {
+    Servername(String),
+    WithNick(String, String, String)
+}
+
+impl TryFrom<&str> for RawIRCMessage {
+    type Error = IRCMessageParseError;
+
+    fn try_from(msg: &str) -> Result<Self, Self::Error> {
+        use IRCMessageParseError::*;
+
+        let chars: Vec<char> = msg.chars().collect();
+        let mut tags = IRCTags::default();
+
+        let mut tags_str = String::new();
+        let prefix: Option<Prefix>;
+        let command_str: String;
+        let message: Option<String>;
+
+        let mut idx = 0;
+
+        if chars[idx] == '@' {
+            if let Some(end_of_tags) = chars.iter().position(|c| *c == ' ') {
+                tags_str = chars[1..end_of_tags].iter().collect();
+                idx = end_of_tags + 1;
+            } else {
+                return Err(TagParseError);
+            }
+        }
+
+        tags.add_from_string(&tags_str);
+
+        if chars[idx] == ':' {
+            if let Some(end_of_source) = chars[idx..].iter().position(|c| *c == ' ') {
+                let source_str: String = chars[idx..][1..end_of_source].iter().collect();
+                if source_str.contains('!') {
+                    let (nick, rest) = source_str.split_once('!').unwrap();
+                    let (user, host) = rest.split_once('@').ok_or(NoSource)?;
+                    prefix = Some(Prefix::WithNick(nick.to_string(), user.to_string(), host.to_string()));
+                } else {
+                    prefix = Some(Prefix::Servername(source_str));
+                }
+                idx += end_of_source;
+            } else {
+                return Err(StructureError);
+            }
+        } else {
+            prefix = None;
+        }
+
+        if let Some(start_of_message) = chars[idx..].iter().position(|c| *c == ':') {
+            command_str = chars[idx..][1..start_of_message-1].iter().collect();
+            let message_str: String = chars[idx..][start_of_message+1..].iter().collect();
+            message = Some(String::from(message_str.trim()));
+        } else {
+            message = None;
+            command_str = chars[idx..].iter().collect();
+        }
+
+        let comms_str: Vec<&str> = command_str.split(' ').collect();
+        let command: IRCCommand = comms_str.get(0).ok_or(NoCommand)?.deref().try_into().map_err(|_e| NoCommand)?;
+        let args: Vec<String> = comms_str.split_at(1).1.to_vec().iter().map(|s| s.to_string()).collect();
+
+        return Ok(RawIRCMessage {
+            tags: tags,
+            prefix,
+            command,
+            args,
+            message,
+        });
+    }
+}
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Clone)]
