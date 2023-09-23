@@ -1,4 +1,4 @@
-use crate::{irc_message::IRCMessage, connection::{Connection, ClientInfo, Channels}};
+use crate::{irc_message::IRCMessage, connection::{Connection, ClientInfo, Auth}};
 use std::{sync::{Arc, Mutex, Condvar}, collections::VecDeque};
 use log::debug;
 use rand::Rng;
@@ -16,10 +16,7 @@ impl Default for ClientBuilder {
         let pass = rng.gen_range(1..1_000_000).to_string();
         debug!("new anonymous login created: {} {}", &username, &pass);
         Self {
-            client_info: ClientInfo::new(
-                username,
-                pass
-            )
+            client_info: ClientInfo::new(Auth::default())
         }
     }
 }
@@ -34,15 +31,19 @@ impl ClientBuilder {
     pub fn new(username: String, token: String) -> Self {
         Self {
             client_info: ClientInfo::new(
-                username,
-                token
+                Auth::OAuth { username: username, token: token }
             )
         }
     }
 
-    pub fn channels<T>(mut self, channels: T) -> Self where
-        T: Into<Channels> {
-        self.client_info.channels = channels.into();
+    pub fn channels<T>(mut self, channels: T) -> Self
+    where
+        T: IntoIterator,
+        T::Item: Into<String>
+    {
+        for i in channels {
+            self.client_info.self_info.join_channel(i.into());
+        }
         self
     }
 

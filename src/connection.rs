@@ -7,6 +7,7 @@ use tokio::{net::TcpStream, sync::mpsc::{Sender, Receiver}};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream, MaybeTlsStream};
 
 use crate::irc_message::IRCMessage;
+use crate::user::SelfStatus;
 
 const TWITCH_IRC_URL: &str = "wss://irc-ws.chat.twitch.tv:443";
 
@@ -14,7 +15,7 @@ pub(crate) struct Connection {
     socket: Option<Socket>,
     received: Option<Receiver<Message>>,
     sender: Option<Sender<Message>>,
-    client_info: ClientInfo
+    client_info: Arc<Mutex<ClientInfo>>
 }
 
 impl Connection {
@@ -23,7 +24,7 @@ impl Connection {
             socket: None,
             received: None,
             sender: None,
-            client_info: client_info,
+            client_info: Arc::new(Mutex::new(client_info)),
         }
     }
 
@@ -71,17 +72,17 @@ impl Connection {
         }
     }
 
-    pub async fn join_channel(&mut self, channel: &str) {
-        self.client_info.channels.join_channel(channel);
+    pub async fn join_channel(&mut self, channel: String) {
         if let Some(sender) = &self.sender {
-            sender.blocking_send(Message::Text(format!("JOIN #{}", channel))).unwrap();
+            sender.blocking_send(Message::Text(format!("JOIN #{}", &channel))).unwrap();
+            self.client_info.lock().unwrap().self_info.join_channel(channel);
         } else {
             warn!("tried to send to socket while it's not running!");
         }
     }
 
     pub async fn leave_channel(&mut self, channel: &str) {
-        self.client_info.channels.leave_channel(channel);
+        self.client_info.lock().unwrap().self_info.leave_channel(channel);
         if let Some(sender) = &self.sender {
             sender.blocking_send(Message::Text(format!("PART #{}", channel))).unwrap();
         } else {
@@ -89,7 +90,7 @@ impl Connection {
         }
     }
 
-    pub async fn send_pong(&mut self) {
+    async fn send_pong(&mut self) {
         if let Some(sender) = &self.sender {
             sender.blocking_send(Message::Text("PONG :tmi.twitch.tv".to_string())).unwrap();
         } else {
@@ -101,7 +102,7 @@ impl Connection {
 struct Socket {
     stream: Pin<Box<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     outgoing: tokio::sync::mpsc::Receiver<Message>,
-    client_info: ClientInfo
+    client_info: Arc<Mutex<ClientInfo>>
 }
 
 enum ReadReceiveError {
@@ -125,7 +126,7 @@ impl Socket {
 
     }
 
-    pub async fn new(client_info: ClientInfo) -> (Self, tokio::sync::mpsc::Sender<Message>) {
+    pub async fn new(client_info: Arc<Mutex<ClientInfo>>) -> (Self, tokio::sync::mpsc::Sender<Message>) {
         let stream = Self::start_socket(client_info.clone()).await;
         let (send, recv) = tokio::sync::mpsc::channel(64);
         (
@@ -176,10 +177,9 @@ impl Socket {
         info!("connection restarted.");
     }
 
-    #[allow(unused_must_use)]
-    async fn start_socket(client_info: ClientInfo) -> Pin<Box<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>> {
+    async fn start_socket(client_info: Arc<Mutex<ClientInfo>>) -> Pin<Box<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>> {
         let mut new_stream = Self::get_new_socket().await;
-        let initial_messages = client_info.get_initial_messages();
+        let initial_messages = client_info.lock().unwrap().get_initial_messages();
         for i in initial_messages {
             new_stream.send(i).await;
         }
@@ -187,44 +187,44 @@ impl Socket {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum Auth {
-    OAuth(String),
+    OAuth{ username: String, token: String },
     #[default]
     Anonymous
 }
 
-impl From<Auth> for String {
-    fn from(value: Auth) -> Self {
-        match value {
-            Auth::OAuth(token) => format!("oauth:{}", token),
-            Auth::Anonymous => rand::thread_rng().gen_range(0..1_000_000).to_string(),
-        }
-    }
-}
-
-impl From<&Auth> for String {
-    fn from(value: &Auth) -> Self {
-        match value {
-            Auth::OAuth(token) => format!("oauth:{}", token),
-            Auth::Anonymous => rand::thread_rng().gen_range(0..1_000_000).to_string(),
+impl Auth {
+    fn into_commands(&self) -> (Message, Message) {
+        match self {
+            Self::OAuth { username, token } => {
+                (
+                    Message::text(String::from(format!("NICK {username}"))),
+                    Message::text(String::from(format!("PASS {token}"))),
+                )
+            },
+            Self::Anonymous => {
+                let mut rng = rand::thread_rng();
+                (
+                    Message::text(String::from(format!("NICK justinfan{}", rng.gen_range(1..99999)))),
+                    Message::text(String::from("PASS POGGERS"))
+                )
+            }
         }
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct ClientInfo {
-    username: Arc<Mutex<String>>,
-    auth_token: Arc<Mutex<Auth>>,
-    pub channels: Channels,
+    pub auth: Auth,
+    pub self_info: SelfStatus,
 }
 
 impl ClientInfo {
-    pub fn new(username: String, token: String) -> Self {
+    pub fn new(auth: Auth) -> Self {
         ClientInfo{
-            username: Arc::new(Mutex::new(username)),
-            auth_token: Arc::new(Mutex::new(Auth::OAuth(token))),
-            channels: Channels::default(),
+            auth: auth,
+            self_info: SelfStatus::new()
         }
     }
 
@@ -234,86 +234,13 @@ impl ClientInfo {
         let (nick, pass) = self.get_auth_commands();
         out.push(pass);
         out.push(nick);
-        if let Some(join) = self.channels.join_message() {
+        if let Some(join) = self.self_info.get_join_message() {
             out.push(join);
         }
         return out;
     }
 
     fn get_auth_commands(&self) -> (Message, Message) {
-        return (
-            Message::Text(String::from(format!("NICK {}", self.username.lock().unwrap()))),
-            Message::Text(String::from(format!("PASS {}", String::from(&*self.auth_token.lock().unwrap())))),
-        )
-    }
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct Channels {
-    channels: Arc<Mutex<Vec<String>>>,
-}
-
-impl Channels {
-    pub fn new<S>(channels: S) -> Self
-        where S: Into<Self> {
-        channels.into()
-    }
-
-    pub fn join_channel(&mut self, channel: &str) {
-        self.channels.lock().unwrap().push(channel.to_string());
-    }
-
-    pub fn leave_channel(&mut self, channel: &str) {
-        let pos = self.channels.lock().unwrap().iter().position(|s| s == channel);
-        if let Some(channel_pos) = pos {
-            self.channels.lock().unwrap().remove(channel_pos);
-        }
-    }
-
-    pub fn join_message(&self) -> Option<Message> {
-        if self.channels.lock().unwrap().is_empty() {
-            return None;
-        }
-        let mut msg = String::from("JOIN ");
-        for i in self.channels.lock().unwrap().iter() {
-            msg += &format!("#{},", i);
-        }
-        return Some(Message::text(msg));
-    }
-}
-
-impl From<&str> for Channels {
-    fn from(value: &str) -> Self {
-        Self { channels: Arc::new(Mutex::new(vec![value.to_string()])) }
-    }
-}
-
-impl From<String> for Channels {
-    fn from(value: String) -> Self {
-        Self { channels: Arc::new(Mutex::new(vec![value])) }
-    }
-}
-
-impl From<&[String]> for Channels {
-    fn from(value: &[String]) -> Self {
-        Self { channels: Arc::new(Mutex::new(value.into())) }
-    }
-}
-
-impl From<&[&str]> for Channels {
-    fn from(value: &[&str]) -> Self {
-        Self { channels: Arc::new(Mutex::new(value.iter().map(|s| s.to_string()).collect())) }
-    }
-}
-
-impl From<Vec<String>> for Channels {
-    fn from(value: Vec<String>) -> Self {
-        Self { channels: Arc::new(Mutex::new(value)) }
-    }
-}
-
-impl From<Vec<&str>> for Channels {
-    fn from(value: Vec<&str>) -> Self {
-        Self { channels: Arc::new(Mutex::new(value.iter().map(|s| s.to_string()).collect())) }
+        self.auth.into_commands()
     }
 }
