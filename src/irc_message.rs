@@ -3,6 +3,7 @@ use hashbrown::HashMap;
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
 
+// FIXME: this is DUMB, change this ASAP, also fix the casing of the name
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IRCMessage {
@@ -125,6 +126,8 @@ impl IRCMessage {
     }
 }
 
+// what is this erm
+
 // #[allow(non_upper_case_globals)]
 // impl From<&str> for IRCMessage {
 //     // fn from(value: &str) -> Self {
@@ -181,6 +184,8 @@ impl IRCMessage {
 //     // }
 // }
 
+// FIXME: why &str if we're gonna take ownership of it anyway? remove unnecessary
+// clones
 impl TryFrom<&str> for IRCMessage {
     type Error = IRCMessageParseError;
 
@@ -262,6 +267,7 @@ impl TryFrom<&str> for IRCMessage {
             }
         });
 
+        // a fucking function inside another function 😭
         fn nick_from_source(source: &str) -> Option<String> {
             if let Some((nick, _)) = source.split_once('!') {
                 return Some(nick.to_string());
@@ -319,7 +325,7 @@ pub enum IRCCommand {
     UserNotice,
     Reconnect,
     UnsupportedError,
-    AuthSuccessfull,
+    AuthSuccessful,
     UserList,
     Useless,
 }
@@ -352,7 +358,7 @@ impl TryFrom<&str> for IRCCommand {
             "421" => Ok(Self::UnsupportedError),
             "353" => Ok(Self::UserList),
             "366" => Ok(Self::UserList),
-            "001" => Ok(Self::AuthSuccessfull),
+            "001" => Ok(Self::AuthSuccessful),
             "002" => Ok(Self::Useless),
             "003" => Ok(Self::Useless),
             "004" => Ok(Self::Useless),
@@ -383,7 +389,7 @@ impl From<IRCCommand> for String {
             IRCCommand::UserNotice => "USERNOTICE",
             IRCCommand::Reconnect => "RECONNECT",
             IRCCommand::UnsupportedError => "421",
-            IRCCommand::AuthSuccessfull => "001",
+            IRCCommand::AuthSuccessful => "001",
             IRCCommand::UserList => "353",
             IRCCommand::Useless => "",
         })

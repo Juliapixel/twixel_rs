@@ -31,7 +31,7 @@ fn irc_message_deserialization() {
         IRCMessage {
             tags: IRCTags::default(),
             nick: None,
-            command: IRCCommand::AuthSuccessfull,
+            command: IRCCommand::AuthSuccessful,
             channel: None,
             message: Some(String::from("Welcome, GLHF!"))
         }
