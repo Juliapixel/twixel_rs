@@ -1,4 +1,4 @@
-use crate::{irc_message::IRCMessage, connection::{Connection, ClientInfo, Auth}};
+use crate::{irc_message::IRCMessage, connection::Connection, user::ClientInfo, auth::Auth};
 use std::{sync::{Arc, Mutex, Condvar}, collections::VecDeque};
 use log::debug;
 use rand::Rng;

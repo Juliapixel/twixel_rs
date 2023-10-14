@@ -1,9 +1,10 @@
-use std::{sync::Arc, fmt::Write};
+use std::{sync::Arc, fmt::Write, time::Duration};
 
-use tokio_tungstenite::tungstenite::Message;
+use crate::auth::Auth;
 
-const MESSAGE_COOLDOWN_STANDARD_MILLIS: u64 = 1500;
-const MESSAGE_COOLDOWN_PRIVILEGED_MILLIS: u64 = 300;
+// why is this just millis brah
+const MESSAGE_COOLDOWN_STANDARD: Duration = Duration::from_millis(1500);
+const MESSAGE_COOLDOWN_PRIVILEGED: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Debug)]
 pub struct SelfStatus {
@@ -22,6 +23,8 @@ impl SelfStatus {
     pub fn join_channel(&mut self, channel: String) {
         self.channels.insert(
             channel,
+            // TODO: decide when we should request the target channel's display name and id
+            // or if they should just be passed to this funcion
             ChannelInfo {
                 display_name: todo!(),
                 id: todo!(),
@@ -47,13 +50,13 @@ impl SelfStatus {
         self.channels.get_mut(channel)
     }
 
-    pub fn get_join_message(&self) -> Option<Message> {
+    pub fn get_join_message(&self) -> Option<String> {
         if !self.channels.is_empty() {
             let mut out = String::from("JOIN ");
             for i in self.channels.keys() {
                 write!(&mut out, "#{}, ", i).unwrap();
             }
-            return Some(Message::Text(out));
+            return Some(out);
         } else {
             return None;
         }
@@ -86,9 +89,9 @@ impl ChannelInfo {
     /// returns ``true`` if you cannot send message
     pub fn is_on_cooldown(&self) -> bool {
         if self.is_privileged() {
-            self.last_message.elapsed().as_millis() < MESSAGE_COOLDOWN_PRIVILEGED_MILLIS as u128
+            return self.last_message.elapsed() < MESSAGE_COOLDOWN_PRIVILEGED;
         } else {
-            self.last_message.elapsed().as_millis() < MESSAGE_COOLDOWN_STANDARD_MILLIS as u128
+            return self.last_message.elapsed() < MESSAGE_COOLDOWN_STANDARD;
         }
     }
 
@@ -97,9 +100,11 @@ impl ChannelInfo {
     pub fn time_until_cooldown_over(&self) -> Option<std::time::Duration> {
         if !self.is_on_cooldown() { return None }
         return Some(
-            std::time::Duration::from_millis(
-                if self.is_privileged() { MESSAGE_COOLDOWN_PRIVILEGED_MILLIS } else { MESSAGE_COOLDOWN_STANDARD_MILLIS }
-            ) - self.last_message.elapsed()
+                if self.is_privileged() {
+                    MESSAGE_COOLDOWN_PRIVILEGED
+                } else {
+                    MESSAGE_COOLDOWN_STANDARD
+                } - self.last_message.elapsed()
         );
     }
 }
@@ -109,4 +114,35 @@ pub struct ChannelRoles {
     pub is_moderator: bool,
     pub is_vip: bool,
     pub is_sub: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClientInfo {
+    pub auth: Auth,
+    pub self_info: SelfStatus,
+}
+
+impl ClientInfo {
+    pub fn new(auth: Auth) -> Self {
+        ClientInfo{
+            auth: auth,
+            self_info: SelfStatus::new()
+        }
+    }
+
+    pub fn get_initial_messages(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        out.push(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags"));
+        let (nick, pass) = self.get_auth_commands();
+        out.push(pass);
+        out.push(nick);
+        if let Some(join) = self.self_info.get_join_message() {
+            out.push(join);
+        }
+        return out;
+    }
+
+    fn get_auth_commands(&self) -> (String, String) {
+        self.auth.into_commands()
+    }
 }
