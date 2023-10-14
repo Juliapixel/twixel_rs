@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+mod tests;
+
 pub mod client_builder;
 pub(crate) mod irc_message;
 pub(crate) mod connection;
