@@ -2,7 +2,6 @@ use std::{sync::Arc, fmt::Write, time::Duration};
 
 use crate::auth::Auth;
 
-// why is this just millis brah
 const MESSAGE_COOLDOWN_STANDARD: Duration = Duration::from_millis(1500);
 const MESSAGE_COOLDOWN_PRIVILEGED: Duration = Duration::from_millis(300);
 
