@@ -39,7 +39,6 @@ fn irc_message_deserialization() {
     // TODO: add more assertions to make sure the deserialization is correct
 }
 
-#[cfg(test)]
 pub const SHIT_TON: &'static str = include_str!("../logs/logs.txt");
 
 #[test]

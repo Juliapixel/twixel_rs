@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+#[cfg(test)]
 mod tests;
 
 pub mod client_builder;
