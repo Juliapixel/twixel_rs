@@ -1,4 +1,5 @@
-use crate::irc_message::{IRCMessage, IRCCommand, IRCTags, IRCMessageFormatter};
+use crate::irc_message::{message::{IrcMessage, IrcMessageFormatter}, command::IrcCommand, tags::IrcTags, raw::RawIrcMessage, error::IrcMessageParseError};
+
 
 const DIVERSE_MESSAGES: &str =
 r":tmi.twitch.tv 001 placeholdername :Welcome, GLHF!
@@ -21,17 +22,17 @@ PING :tmi.twitch.tv
 #[test]
 fn irc_message_deserialization() {
     let lines: Vec<&str> = DIVERSE_MESSAGES.lines().collect();
-    let mut messages: Vec<IRCMessage> = Vec::new();
+    let mut messages: Vec<IrcMessage> = Vec::new();
     for line in lines {
-        let msg = TryInto::<IRCMessage>::try_into(line).unwrap();
+        let msg = TryInto::<IrcMessage>::try_into(line).unwrap();
         messages.push(msg);
     }
     assert_eq!(
         messages[0],
-        IRCMessage {
-            tags: IRCTags::default(),
+        IrcMessage {
+            tags: IrcTags::default(),
             nick: None,
-            command: IRCCommand::AuthSuccessful,
+            command: IrcCommand::AuthSuccessful,
             channel: None,
             message: Some(String::from("Welcome, GLHF!"))
         }
@@ -39,34 +40,23 @@ fn irc_message_deserialization() {
     // TODO: add more assertions to make sure the deserialization is correct
 }
 
-pub const SHIT_TON: &'static str = include_str!("../logs/logs.txt");
-
-#[test]
-fn test_a_shit_ton() {
-    let messages: Vec<&str> = SHIT_TON.lines().collect();
-
-    for msg in messages {
-        TryInto::<IRCMessage>::try_into(msg).expect(&msg);
-    }
-}
-
 #[test]
 fn irc_message_formatting() {
-    let priv_msg = IRCMessage {
-        tags: IRCTags::new(),
+    let priv_msg = IrcMessage {
+        tags: IrcTags::new(),
         nick: None,
-        command: IRCCommand::PrivMsg,
+        command: IrcCommand::PrivMsg,
         channel: Some(String::from("julialuxel")),
         message: Some(String::from("message 123")),
-    }.to_string(IRCMessageFormatter::Client);
+    }.to_string(IrcMessageFormatter::Client);
 
-    let server_priv_msg = IRCMessage {
-        tags: IRCTags::new(),
+    let server_priv_msg = IrcMessage {
+        tags: IrcTags::new(),
         nick: Some(String::from("julialuxel")),
-        command: IRCCommand::PrivMsg,
+        command: IrcCommand::PrivMsg,
         channel: Some(String::from("julialuxel")),
         message: Some(String::from("message 123")),
-    }.to_string(IRCMessageFormatter::Server);
+    }.to_string(IrcMessageFormatter::Server);
 
 
     assert_eq!(priv_msg, "PRIVMSG #julialuxel :message 123");

@@ -1,4 +1,4 @@
-use crate::{irc_message::IRCMessage, connection::Connection, user::ClientInfo, auth::Auth};
+use crate::{connection::Connection, user::ClientInfo, auth::Auth, irc_message::message::IrcMessage};
 use std::{sync::{Arc, Mutex, Condvar}, collections::VecDeque};
 use log::debug;
 use rand::Rng;
@@ -82,13 +82,13 @@ impl TwitchIRCClient {
         self.connection.as_mut().unwrap().run().await;
     }
 
-    pub async fn send_message(&mut self, msg: IRCMessage) {
+    pub async fn send_message(&mut self, msg: IrcMessage) {
         if let Some(conn) = &mut self.connection {
             conn.send(msg).await;
         }
     }
 
-    pub async fn receive_message(&mut self) -> IRCMessage {
+    pub async fn receive_message(&mut self) -> IrcMessage {
         if let Some(conn) = &mut self.connection {
             conn.receive().await
         } else {
@@ -96,8 +96,8 @@ impl TwitchIRCClient {
         }
     }
 
-    pub async fn reply_to_message(&mut self, reply: String, msg: IRCMessage) {
-        let mut reply = IRCMessage::text(reply, msg.channel.clone().unwrap());
+    pub async fn reply_to_message(&mut self, reply: String, msg: IrcMessage) {
+        let mut reply = IrcMessage::text(reply, msg.channel.clone().unwrap());
         reply.add_tag("reply-parent-msg-id", msg.tags.get_message_id().unwrap());
         self.send_message(reply).await;
     }
@@ -107,7 +107,7 @@ impl TwitchIRCClient {
 
 #[derive(Clone)]
 pub struct MessageQueue {
-    queue: Arc<Mutex<VecDeque<IRCMessage>>>,
+    queue: Arc<Mutex<VecDeque<IrcMessage>>>,
     condvar: Arc<Condvar>,
     is_empty: Arc<Mutex<bool>>
 }
@@ -122,7 +122,7 @@ impl MessageQueue {
     }
 
     pub(crate) fn add_message<T>(&mut self, message: T) where
-        T: Into<IRCMessage> {
+        T: Into<IrcMessage> {
         let mut incoming = self.queue.lock().unwrap();
         if incoming.len() >= 1000 {
             incoming.pop_front();
@@ -134,7 +134,7 @@ impl MessageQueue {
         self.condvar.notify_all();
     }
 
-    pub fn get_message(&mut self) -> Option<IRCMessage> {
+    pub fn get_message(&mut self) -> Option<IrcMessage> {
         let mut queue = self.queue.lock().unwrap();
         let out = queue.pop_back();
         if queue.len() == 0 {
@@ -143,7 +143,7 @@ impl MessageQueue {
         return out;
     }
 
-    pub fn get_blocking(&mut self) -> IRCMessage {
+    pub fn get_blocking(&mut self) -> IrcMessage {
         let guard = self.condvar.wait_while(self.is_empty.lock().unwrap(), |is_empty| *is_empty).unwrap();
         drop(guard);
         self.get_message().unwrap()

@@ -5,7 +5,7 @@ use log::{warn, debug, info};
 use tokio::{net::TcpStream, sync::mpsc::{Sender, Receiver}};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream, MaybeTlsStream};
 
-use crate::{irc_message::IRCMessage, user::ClientInfo};
+use crate::{user::ClientInfo, irc_message::message::{IrcMessage, IrcMessageFormatter}};
 
 const TWITCH_IRC_URL: &str = "wss://irc-ws.chat.twitch.tv:443";
 
@@ -59,15 +59,15 @@ impl Connection {
         });
     }
 
-    pub async fn send(&mut self, msg: IRCMessage) {
+    pub async fn send(&mut self, msg: IrcMessage) {
         if let Some(sender) = &self.sender {
-            sender.send(msg.to_string(crate::irc_message::IRCMessageFormatter::Client)).await.unwrap();
+            sender.send(msg.to_string(IrcMessageFormatter::Client)).await.unwrap();
         } else {
             warn!("tried to send to socket while it's not running!");
         }
     }
 
-    pub async fn receive(&mut self) -> IRCMessage {
+    pub async fn receive(&mut self) -> IrcMessage {
         if let Some(received) = &mut self.received {
             // FIXME: do not unwrap here
             received.recv().await.unwrap().as_str().try_into().unwrap()
