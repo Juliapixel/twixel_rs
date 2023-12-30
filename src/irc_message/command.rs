@@ -1,92 +1,96 @@
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
+use thiserror::Error;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "String"))]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum IrcCommand {
-    Join,
-    Part,
-    Notice,
-    ClearChat,
-    ClearMsg,
-    HostTarget,
-    PrivMsg,
-    Whisper,
-    Ping,
-    Cap,
-    GlobalUserState,
-    UserState,
-    RoomState,
-    UserNotice,
-    Reconnect,
-    UnsupportedError,
-    AuthSuccessful,
-    UserList,
-    Useless,
-}
+macro_rules! commands {
+    (
+        $name:ident, $error:ident,
+        [$($var:ident),+]
+        $($key:literal = $val:ident),+
+    ) => {
+        #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "&'static str"))]
+        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        pub enum $name {
+            $($var,)*
+        }
 
-#[derive(Debug)]
-pub enum IrcCommandError {
-    Failed,
-}
+        #[derive(Debug, Clone, PartialEq, Eq, Error)]
+        pub enum $error {
+            #[error("the IRC command was not identified!")]
+            Failed(String),
+        }
 
-impl TryFrom<&str> for IrcCommand {
-    type Error = IrcCommandError;
+        impl TryFrom<&str> for $name {
+            type Error = $error;
 
-    fn try_from(input: &str) -> Result<Self, Self::Error> {
-        match input {
-            "JOIN" => Ok(Self::Join),
-            "PART" => Ok(Self::Part),
-            "NOTICE" => Ok(Self::Notice),
-            "CLEARCHAT" => Ok(Self::ClearChat),
-            "CLEARMSG" => Ok(Self::ClearMsg),
-            "HOSTTARGET" => Ok(Self::HostTarget),
-            "PRIVMSG" => Ok(Self::PrivMsg),
-            "PING" => Ok(Self::Ping),
-            "CAP" => Ok(Self::Cap),
-            "GLOBALUSERSTATE" => Ok(Self::GlobalUserState),
-            "USERSTATE" => Ok(Self::UserState),
-            "ROOMSTATE" => Ok(Self::RoomState),
-            "USERNOTICE" => Ok(Self::UserNotice),
-            "RECONNECT" => Ok(Self::Reconnect),
-            "WHISPER" => Ok(Self::Whisper),
-            "421" => Ok(Self::UnsupportedError),
-            "353" => Ok(Self::UserList),
-            "366" => Ok(Self::UserList),
-            "001" => Ok(Self::AuthSuccessful),
-            "002" => Ok(Self::Useless),
-            "003" => Ok(Self::Useless),
-            "004" => Ok(Self::Useless),
-            "375" => Ok(Self::Useless),
-            "372" => Ok(Self::Useless),
-            "376" => Ok(Self::Useless),
-             _ => Err(IrcCommandError::Failed),
+            fn try_from(val: &str) -> Result<Self, $error> {
+                match val {
+                    $($key => Ok(Self::$val),)*
+                    _ => Err($error::Failed(String::from(val)))
+                }
             }
-    }
+        }
+
+        impl From<$name> for &str {
+            fn from(val: $name) -> &'static str {
+                match val {
+                    $($name::$val => $key,)*
+                }
+            }
+        }
+    };
 }
 
-impl From<IrcCommand> for String {
-    fn from(value: IrcCommand) -> Self {
-        return String::from(match value {
-            IrcCommand::Join => "JOIN",
-            IrcCommand::Part => "PART",
-            IrcCommand::Notice => "NOTICE",
-            IrcCommand::ClearChat => "CLEARCHAT",
-            IrcCommand::ClearMsg => "CLEARMSG",
-            IrcCommand::HostTarget => "HOSTTARGET",
-            IrcCommand::PrivMsg => "PRIVMSG",
-            IrcCommand::Whisper => "WHISPER",
-            IrcCommand::Ping => "PING",
-            IrcCommand::Cap => "CAP",
-            IrcCommand::GlobalUserState => "GLOBALUSERSTATE",
-            IrcCommand::UserState => "USERSTATE",
-            IrcCommand::RoomState => "ROOMSTATE",
-            IrcCommand::UserNotice => "USERNOTICE",
-            IrcCommand::Reconnect => "RECONNECT",
-            IrcCommand::UnsupportedError => "421",
-            IrcCommand::AuthSuccessful => "001",
-            IrcCommand::UserList => "353",
-            IrcCommand::Useless => "",
-        })
-    }
+commands!{
+    IrcCommand, IrcCommandError,
+    [
+        Pass,
+        Nick,
+        Join,
+        Part,
+        Notice,
+        ClearMsg,
+        ClearChat,
+        HostTarget,
+        PrivMsg,
+        Ping,
+        Cap,
+        GlobalUserState,
+        UserState,
+        RoomState,
+        UserNotice,
+        Reconnect,
+        Whisper,
+        UnsupportedError,
+        UserList,
+        AuthSuccessful,
+        Useless
+    ]
+    "PASS" = Pass,
+    "NICK" = Nick,
+    "JOIN" = Join,
+    "PART" = Part,
+    "NOTICE" = Notice,
+    "CLEARCHAT" = ClearChat,
+    "CLEARMSG" = ClearMsg,
+    "HOSTTARGET" = HostTarget,
+    "PRIVMSG" = PrivMsg,
+    "PING" = Ping,
+    "CAP" = Cap,
+    "GLOBALUSERSTATE" = GlobalUserState,
+    "USERSTATE" = UserState,
+    "ROOMSTATE" = RoomState,
+    "USERNOTICE" = UserNotice,
+    "RECONNECT" = Reconnect,
+    "WHISPER" = Whisper,
+    "421" = UnsupportedError,
+    "353" = UserList,
+    "366" = UserList,
+    "001" = AuthSuccessful,
+    "002" = Useless,
+    "003" = Useless,
+    "004" = Useless,
+    "375" = Useless,
+    "372" = Useless,
+    "376" = Useless
 }

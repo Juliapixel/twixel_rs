@@ -1,14 +1,14 @@
 use std::{sync::Arc, fmt::Write, time::Duration};
 
-use crate::auth::Auth;
+use crate::{auth::Auth, irc_message::{owned::OwnedIrcMessage, command::IrcCommand}};
 
 const MESSAGE_COOLDOWN_STANDARD: Duration = Duration::from_millis(1500);
 const MESSAGE_COOLDOWN_PRIVILEGED: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Debug)]
 pub struct SelfStatus {
-    channels: hashbrown::HashMap<String, ChannelInfo>,
-    last_sent_message: std::time::Instant,
+    pub channels: hashbrown::HashMap<String, ChannelInfo>,
+    pub last_sent_message: std::time::Instant,
 }
 
 impl SelfStatus {
@@ -49,13 +49,18 @@ impl SelfStatus {
         self.channels.get_mut(channel)
     }
 
-    pub fn get_join_message(&self) -> Option<String> {
+    pub fn get_join_message(&self) -> Option<OwnedIrcMessage> {
         if !self.channels.is_empty() {
-            let mut out = String::from("JOIN ");
+            let mut params = Vec::new();
             for i in self.channels.keys() {
-                write!(&mut out, "#{}, ", i).unwrap();
+                params.push(format!("#{i}"))
             }
-            return Some(out);
+            return Some(OwnedIrcMessage{
+                tags: None,
+                prefix: None,
+                command: IrcCommand::Join,
+                params,
+            });
         } else {
             return None;
         }
@@ -129,19 +134,31 @@ impl ClientInfo {
         }
     }
 
-    pub fn get_initial_messages(&self) -> Vec<String> {
+    pub fn get_initial_messages(&self) -> Vec<OwnedIrcMessage> {
         let mut out = Vec::new();
-        out.push(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags"));
+
         let (nick, pass) = self.get_auth_commands();
         out.push(pass);
         out.push(nick);
+
+        let cap_req = OwnedIrcMessage {
+            tags: None,
+            prefix: None,
+            command: IrcCommand::Cap,
+            params: vec![
+                "REQ".into(),
+                ":twitch.tv/commands twitch.tv/tags".into()
+            ],
+        };
+        out.push(cap_req);
+
         if let Some(join) = self.self_info.get_join_message() {
             out.push(join);
         }
         return out;
     }
 
-    fn get_auth_commands(&self) -> (String, String) {
+    fn get_auth_commands(&self) -> (OwnedIrcMessage, OwnedIrcMessage) {
         self.auth.into_commands()
     }
 }
