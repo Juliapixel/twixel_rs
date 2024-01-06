@@ -1,10 +1,11 @@
-use std::{sync::{Arc, Mutex}, pin::Pin, ops::DerefMut, time::Duration};
+use std::sync::{Arc, Mutex};
 
-use futures_util::{StreamExt, SinkExt, FutureExt};
-use log::{warn, debug, info};
+use futures_util::{StreamExt, SinkExt};
+use log::{warn, debug};
+use smallvec::SmallVec;
 use thiserror::Error;
-use tokio::{net::TcpStream, sync::mpsc::{Sender, Receiver}};
-use tokio_tungstenite::{tungstenite::{Message, protocol::WebSocketConfig}, WebSocketStream, MaybeTlsStream};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{tungstenite::Message, WebSocketStream, MaybeTlsStream};
 
 use crate::{user::ClientInfo, irc_message::{raw::RawIrcMessage, owned::OwnedIrcMessage, command::IrcCommand, error::RawIrcMessageParseError}};
 
@@ -43,13 +44,15 @@ pub enum ConnectionError {
     #[error(transparent)]
     StartError(#[from] ConnectionStartError),
     #[error(transparent)]
-    ReceiveError(#[from] ConnectionReceiveError)
+    ReceiveError(#[from] ConnectionReceiveError),
+    #[error(transparent)]
+    SendError(#[from] ConnectionSendError)
 }
 
 type Websocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// handles the interface between the raw `Socket` and the `TwitchIrcClient`
-pub(crate) struct Connection {
+pub struct Connection {
     socket: Option<Websocket>,
     client_info: Arc<Mutex<ClientInfo>>
 }
@@ -63,12 +66,14 @@ impl Connection {
         }
     }
 
-    pub async fn start(&mut self) -> Result<(), ConnectionStartError> {
+    pub async fn start(&mut self) -> Result<(), ConnectionError> {
         if self.socket.is_some() {
             warn!("tried starting connection when it was already started");
-            return Err(ConnectionStartError::AlreadyStarted)
+            return Err(ConnectionStartError::AlreadyStarted)?
         }
-        let (new_socket, _resp) = tokio_tungstenite::connect_async(TWITCH_IRC_URL).await?;
+        let (new_socket, _resp) = tokio_tungstenite::connect_async(TWITCH_IRC_URL)
+            .await
+            .map_err(|e| ConnectionStartError::TungsteniteError(e))?;
 
         self.socket = Some(new_socket);
 
@@ -77,31 +82,70 @@ impl Connection {
         let join_msg = client_info.self_info.get_join_message();
         drop(client_info);
 
-        self.send(auth_messages.0).await?;
-        self.send(auth_messages.1).await?;
+        let cap_req = OwnedIrcMessage {
+            tags: None,
+            prefix: None,
+            command: IrcCommand::Cap,
+            params: vec![
+                "REQ".into(),
+                ":twitch.tv/commands twitch.tv/tags".into()
+            ],
+        };
 
         if let Some(join_msg) = join_msg {
-            self.send(join_msg).await?;
+            self.send_batched(&[auth_messages.0, auth_messages.1, cap_req, join_msg]).await?;
+        } else {
+            self.send_batched(&[auth_messages.0, auth_messages.1, cap_req]).await?;
         }
 
         Ok(())
     }
 
-    pub async fn receive(&mut self) -> Result<RawIrcMessage, ConnectionReceiveError> {
+    /// receives and automatically handles keepalive and other system messages
+    pub async fn receive(&mut self) -> Result<SmallVec<[RawIrcMessage; 4]>, ConnectionError> {
         if let Some(socket) = &mut self.socket {
             // TODO: treat a connection closed by the host
             // TODO: handle received system messages: RECONNECT, USERSTATE, ROOMSTATE, GLOBALUSERSTATE, PING
             // FIXME: don't unwrap here
-            Ok(RawIrcMessage::try_from(socket.next().await.unwrap().unwrap().to_text().unwrap())?)
+            let received_text = socket.next().await.unwrap().unwrap().to_text().unwrap().to_string();
+
+            let mut received_messages = SmallVec::new();
+            let mut pos = 0;
+            for i in memchr::memchr_iter(b'\n', received_text.as_bytes()) {
+                let parsed = RawIrcMessage::try_from(&received_text[pos..=i]).map_err(|e| ConnectionReceiveError::NotValidMessage(e))?;
+                if parsed.command == IrcCommand::Ping {
+                    self.send(OwnedIrcMessage::pong(parsed.get_param(0).unwrap().into())).await?;
+                }
+                received_messages.push(parsed);
+                pos = i + 1;
+            }
+            Ok(received_messages)
         } else {
-            Err(ConnectionReceiveError::NotStarted)
+            Err(ConnectionReceiveError::NotStarted)?
         }
     }
 
-    pub async fn send(&mut self, message: OwnedIrcMessage) -> Result<(), ConnectionSendError>{
+    pub async fn send(&mut self, message: OwnedIrcMessage) -> Result<(), ConnectionSendError> {
         if let Some(socket) = &mut self.socket {
+            let out = message.to_string();
+            debug!("sent: {}", out.trim());
             // TODO: treat a connection closed by the host
-            socket.send(Message::Text(message.to_string())).await?;
+            socket.send(Message::Text(out)).await?;
+            Ok(())
+        } else {
+            Err(ConnectionSendError::NotStarted)
+        }
+    }
+
+    pub async fn send_batched(&mut self, messages: &[OwnedIrcMessage]) -> Result<(), ConnectionSendError> {
+        if let Some(socket) = &mut self.socket {
+            for i in messages {
+                let out = i.to_string();
+                debug!("sent: {}", if i.command == IrcCommand::Pass { "*redacted for privacy*" } else { &out } );
+                // TODO: treat a connection closed by the host
+                socket.feed(Message::Text(out)).await?;
+            }
+            socket.flush().await?;
             Ok(())
         } else {
             Err(ConnectionSendError::NotStarted)
