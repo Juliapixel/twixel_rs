@@ -121,7 +121,7 @@ pub struct ChannelRoles {
 }
 
 #[derive(Clone)]
-pub(crate) struct ClientInfo {
+pub struct ClientInfo {
     pub auth: Auth,
     pub self_info: SelfStatus,
 }
