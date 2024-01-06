@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn raw_message_display() {
-        const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi hello there!\r\n";
+        const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi";
 
         let parsed = RawIrcMessage::try_from(TEST_MESSAGE).unwrap();
 
@@ -146,5 +146,38 @@ mod tests {
         };
 
         assert_eq!(owned.to_string(), TEST_MESSAGE);
+    }
+
+    #[cfg(all(feature = "serde", feature = "unstable"))]
+    #[test]
+    fn roundtrip_deserialization() {
+        const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi hello there!\r\n";
+        let parsed = RawIrcMessage::try_from(TEST_MESSAGE).unwrap();
+
+        let owned = OwnedIrcMessage {
+            tags: Some(vec![
+                (OwnedTag::Unknown("tag1".into()), "val1".into()),
+                (OwnedTag::Unknown("tag2".into()), "val2".into()),
+                (OwnedTag::Unknown("tag3".into()), "val3".into())
+            ]),
+            prefix: Some(
+                OwnedPrefix::Full {
+                    nickname: "juliapixel".into(),
+                    username: "julia".into(),
+                    host: "juliapixel.com".into()
+                }
+            ),
+            command: IrcCommand::PrivMsg,
+            params: vec![
+                "#juliapixel".into(),
+                ":hi hello there!".into()
+            ],
+        };
+
+        let json_parsed = serde_json::to_string(&parsed).unwrap();
+        assert_eq!(json_parsed, serde_json::to_string(&owned).unwrap(), "the OwnedIrcMessage and RawIrcMessage serde::Serialize implementations don't match");
+
+        let deserialized_owned: OwnedIrcMessage = serde_json::from_str(&json_parsed).unwrap();
+        assert_eq!(deserialized_owned, owned, "an OwnedIrcMessage could not be deserialized from a serialized RawIrcMessage")
     }
 }

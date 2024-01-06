@@ -1,4 +1,3 @@
-use hashbrown::HashMap;
 use memchr::memchr_iter;
 use thiserror::Error;
 #[cfg(feature = "serde")]
@@ -9,6 +8,7 @@ use std::ops::Range;
 
 macro_rules! raw_tags {
     (
+        $(#[$top_comment:meta])*
         $tag:ident, $raw_tag:ident,
         $(
             $(#[$comment:meta])*
@@ -18,6 +18,7 @@ macro_rules! raw_tags {
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[derive(Debug, PartialEq, Eq, Clone)]
         #[non_exhaustive]
+        $(#[$top_comment])*
         pub enum $raw_tag {
             $(
                 $(#[$comment])*
@@ -31,17 +32,16 @@ macro_rules! raw_tags {
                 match &src[range.clone()] {
                     $($key => Self::$name,)*
                     _ => {
-                        #[cfg(debug_assertions)]
                         log::warn!("unknown tag parsed! please notify the developers of this issue: {:?}", &src[range.clone()]);
                         Self::Unknown(range)
                     }
                 }
             }
 
-            pub fn get_tag<'a>(&self, src: &'a str, range: Range<usize>) -> $tag {
-                match &src[range.clone()] {
-                    $($key => $tag::$name,)*
-                    _ => $tag::Unknown(String::from(&src[range]))
+            pub fn to_owned<'a>(&self, src: &'a str) -> $tag {
+                match self {
+                    $(Self::$name => $tag::$name,)*
+                    Self::Unknown(r) => $tag::Unknown(String::from(&src[r.clone()]))
                 }
             }
 
@@ -54,8 +54,10 @@ macro_rules! raw_tags {
         }
 
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+        #[cfg_attr(feature = "serde", serde(into = "String", from = "&str"))]
         #[derive(Debug, PartialEq, Eq, Clone)]
         #[non_exhaustive]
+        $(#[$top_comment])*
         pub enum $tag {
             $(
                 $(#[$comment])*
@@ -94,6 +96,9 @@ macro_rules! raw_tags {
 }
 
 raw_tags!(
+    /// [IRCv3 tags](https://ircv3.net/specs/extensions/message-tags.html), that
+    /// use [escape sequences](https://ircv3.net/specs/extensions/message-tags.html#escaping-values)
+    /// for invalid characters
     OwnedTag, RawTag,
     /// the ID of the message
     "msg-id" = MsgId,
@@ -126,6 +131,8 @@ raw_tags!(
     "reply-parent-user-login" = ReplyParentUserLogin,
     "reply-thread-parent-msg-id" = ReplyThreadParentMsgId,
     "reply-thread-parent-user-login" = ReplyThreadParentUserLogin,
+    "reply-thread-parent-display-name" = ReplyThreadParentDisplayName,
+    "reply-thread-parent-user-id" = ReplyThreadParentuserId,
     /// value of this tag is the amount of time in minutes that a user has to be
     /// following for
     "followers-only" = FollowersOnly,
@@ -169,7 +176,7 @@ raw_tags!(
     "vip" = Vip,
     "target-user-id" = TargetUserId,
     "target-msg-id" = TargetMsgId,
-    /// duration of timeout applied to user, in seconds, 0 if permanent ban
+    /// [CLEARCHAT](super::command::IrcCommand::ClearChat) only, duration of timeout applied to user, not present if user was banned
     "ban-duration" = BanDuration,
     "msg-param-multimonth-duration" = MsgParamMultimonthDuration,
     "msg-param-was-gifted" = MsgParamWasGifted,
@@ -181,8 +188,19 @@ raw_tags!(
     "msg-param-profileImageURL" = MsgParamProfileImageUrl,
     "msg-param-mass-gift-count" = MsgParamMassGiftCount,
     "msg-param-gift-month-being-redeemed" = MsgParamGiftMonthBeingRedeemed,
-    "msg-param-anon-gift" = MsgParamAnonGift
+    "msg-param-anon-gift" = MsgParamAnonGift,
+    "custom-reward-id" = CustomRewardId
 );
+
+#[derive(Debug, Error)]
+pub enum IRCTagParseError {
+    #[error("failed to parse the tag due to invalid structure: {0}")]
+    TagStructureParseError(String),
+    #[error("failed to parse the tag due to unknown error: {0}")]
+    ContentParseFailed(String),
+    #[error("tag identifier not recognized: {0}")]
+    UnknownIdentifier(String)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RawIrcTags {
@@ -245,15 +263,55 @@ impl RawIrcTags {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum IRCTagParseError {
-    #[error("failed to parse the tag due to invalid structure: {0}")]
-    TagStructureParseError(String),
-    #[error("failed to parse the tag due to unknown error: {0}")]
-    ContentParseFailed(String),
-    #[error("tag identifier not recognized: {0}")]
-    UnknownIdentifier(String)
+#[derive(Debug, PartialEq, Eq)]
+pub struct OwnedIrcTags {
+    pub(crate) tags: Vec<(OwnedTag, String)>
 }
+
+impl OwnedIrcTags {
+    pub fn get_value(&self, tag: OwnedTag) -> Option<&str> {
+        Some(self.tags.iter().find(|t| t.0 == tag )?.1.as_str())
+    }
+
+    pub fn get_color(&self) -> Option<[u8; 3]> {
+        let char_to_int = |byte: u8| -> Option<u8> {
+            char::from_u32((byte as u32) << 24)?.to_digit(16).map(|v| v as u8)
+        };
+
+        let val = self.get_value(OwnedTag::Color)?;
+        if val.len() == 7 {
+            let individuals = val[1..].as_bytes();
+            return Some([
+                char_to_int(individuals[1])? * 16 + char_to_int(individuals[2])?,
+                char_to_int(individuals[3])? * 16 + char_to_int(individuals[4])?,
+                char_to_int(individuals[5])? * 16 + char_to_int(individuals[6])?,
+            ]);
+        } else {
+            return None;
+        }
+    }
+
+    #[cfg(feature = "chrono")]
+    pub fn get_timestamp(&self) -> Option<DateTime<Utc>> {
+        let ts = self.get_value(OwnedTag::TmiSentTs)?.parse::<i64>().ok()?;
+        return DateTime::<Utc>::from_timestamp(ts / 1000, 0);
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for OwnedIrcTags {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        serializer.collect_map(self.tags.iter().map(|t| {
+            (
+                Into::<&str>::into(&t.0),
+                t.1.as_str()
+            )
+        }))
+    }
+}
+
 
 #[derive(Debug, Default)]
 pub struct Badge {

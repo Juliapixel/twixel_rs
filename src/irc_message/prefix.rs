@@ -1,5 +1,8 @@
 use std::{ops::Range, fmt::Display};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RawPrefix {
     OnlyHostname { host: Range<usize> },
@@ -36,6 +39,7 @@ impl RawPrefix {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedPrefix {
     OnlyHostname{ host: String },

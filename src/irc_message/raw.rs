@@ -1,4 +1,7 @@
-use std::{ops::Range, sync::Arc, fmt::Display};
+use std::{ops::Range, sync::Arc, fmt::Display, slice::Iter};
+
+#[cfg(feature = "serde")]
+use serde::{ser::{SerializeStruct, SerializeStructVariant}, Serialize};
 
 use crate::irc_message::{tags::RawIrcTags, prefix::RawPrefix, error::IrcMessageStructureError};
 
@@ -65,6 +68,13 @@ impl RawIrcMessage {
         self.raw.get(self.params.get(idx)?.clone())
     }
 
+    pub fn params<'a>(&'a self) -> Params<'a> {
+        Params {
+            src: &self.raw,
+            iter: self.params.iter(),
+        }
+    }
+
     pub fn get_command(&self) -> IrcCommand {
         self.command
     }
@@ -121,8 +131,11 @@ impl TryFrom<&str> for RawIrcMessage {
         for i in memchr::memchr3_iter(b' ', b'\r', b'\n', raw[pos..].as_bytes()) {
             if raw.as_bytes()[last_param_start] == b':' {
                 params.push(
-                    last_param_start..memchr::memchr2(b'\r', b'\n', raw[pos..].as_bytes())
-                    .unwrap_or(raw.len()) + pos
+                    if let Some(found_end) = memchr::memchr2(b'\r', b'\n', raw[pos..].as_bytes()) {
+                        last_param_start..(found_end + pos)
+                    } else {
+                        last_param_start..raw.len()
+                    }
                 );
                 break;
             } else {
@@ -143,29 +156,96 @@ impl TryFrom<&str> for RawIrcMessage {
 
 impl Display for RawIrcMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(tags) = &self.tags {
-            write!(f, "@")?;
-            let mut first = true;
-            for i in &tags.tags {
-                write!(f, "{}{}={}", if first { "" } else { ";" }, i.0.to_string(&self.raw), &self.raw[i.1.clone()])?;
-                first = false;
+        return write!(f, "{}", self.raw);
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "unstable"))]
+impl Serialize for RawIrcMessage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+            struct TagsSer<'a> {
+                raw: &'a str,
+                tags: &'a [(RawTag, Range<usize>)]
             }
-            write!(f, " ")?;
-        }
-        if let Some(prefix) = &self.prefix {
-            write!(f, "{} ", prefix.to_string(&self.raw))?;
-        }
-        write!(f, "{}", Into::<&str>::into(self.command))?;
 
-        for (i, val) in self.params.iter().enumerate() {
-            write!(
-                f,
-                " {}{}",
-                &self.raw[val.clone()],
-                if i == self.params.len() - 1 { "\r\n" } else { "" }
-            )?;
-        }
+            impl<'a> Serialize for TagsSer<'a> {
+                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where
+                    S: serde::Serializer {
+                        serializer.collect_map(self.tags.iter().map(|t| {
+                            (t.0.to_string(&self.raw), &self.raw[t.1.clone()])
+                        }))
+                }
+            }
 
-        return Ok(());
+            struct PrefixSer<'a> {
+                raw: &'a str,
+                prefix: &'a RawPrefix
+            }
+
+            impl<'a> Serialize for PrefixSer<'a> {
+                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where
+                    S: serde::Serializer {
+                        match self.prefix {
+                            RawPrefix::OnlyHostname { host } => {
+                                let mut state = serializer.serialize_struct_variant("Prefix", 0, "only_hostname", 1)?;
+                                state.serialize_field("host", &self.raw[host.clone()])?;
+                                state.end()
+                            },
+                            RawPrefix::Full { nickname, username, host } => {
+                                let mut state = serializer.serialize_struct_variant("Prefix", 0, "full", 3)?;
+                                state.serialize_field("nickname", &self.raw[nickname.clone()])?;
+                                state.serialize_field("username", &self.raw[username.clone()])?;
+                                state.serialize_field("host", &self.raw[host.clone()])?;
+                                state.end()
+                            },
+                        }
+                }
+            }
+
+            struct ParamsSer<'a> {
+                raw: &'a str,
+                params: &'a [Range<usize>]
+            }
+
+            impl<'a> Serialize for ParamsSer<'a> {
+                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where
+                    S: serde::Serializer {
+                    serializer.collect_seq(self.params.iter().map(|r| &self.raw[r.clone()]))
+                }
+            }
+
+            let mut msg = serializer.serialize_struct("RawIrcMessage", 5)?;
+
+            msg.serialize_field("tags", &self.tags.as_ref().map(|t| {
+                TagsSer { raw: &self.raw, tags: &t.tags }
+            }))?;
+
+            msg.serialize_field("prefix", &self.prefix.as_ref().map(|p| {
+                PrefixSer { raw: &self.raw, prefix: p }
+            }))?;
+
+            msg.serialize_field("command", Into::<&str>::into(self.command))?;
+
+            msg.serialize_field("params", &ParamsSer { raw: &self.raw, params: &self.params })?;
+
+            msg.end()
+    }
+}
+
+pub struct Params<'a> {
+    src: &'a str,
+    iter: Iter<'a, Range<usize>>
+}
+
+impl<'a> Iterator for Params<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(&self.src[self.iter.next()?.clone()])
     }
 }
