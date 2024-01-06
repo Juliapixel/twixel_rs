@@ -31,6 +31,7 @@ macro_rules! commands {
             }
         }
 
+        #[allow(unreachable_patterns)]
         impl From<$name> for &str {
             fn from(val: $name) -> &'static str {
                 match val {
