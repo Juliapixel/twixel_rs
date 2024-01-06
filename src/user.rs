@@ -1,4 +1,4 @@
-use std::{sync::Arc, fmt::Write, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use crate::{auth::Auth, irc_message::{owned::OwnedIrcMessage, command::IrcCommand}};
 
