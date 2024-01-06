@@ -312,7 +312,7 @@ impl Serialize for OwnedIrcTags {
     }
 }
 
-
+// TODO: move this somewhere more adequate
 #[derive(Debug, Default)]
 pub struct Badge {
     name: String,
