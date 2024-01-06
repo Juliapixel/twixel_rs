@@ -1,0 +1,10 @@
+[package]
+name = "raw_connection"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+twitch_irc = { path = "../../", features = ["serde", "chrono", "rustls", "unstable"] }
+env_logger = { version = "0.10" }
+serde_json ={ version = "1.0" }
