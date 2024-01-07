@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use twitch_irc::irc_message::{error::RawIrcMessageParseError, command::IrcCommand, raw::RawIrcMessage, owned::OwnedIrcMessage, tags::OwnedTag, prefix::OwnedPrefix};
+use twixel_core::irc_message::{error::RawIrcMessageParseError, command::IrcCommand, raw::RawIrcMessage, owned::OwnedIrcMessage, tags::OwnedTag, prefix::OwnedPrefix};
 
 #[inline]
 fn deserialize_irc_message(msg: &str) -> Result<RawIrcMessage, RawIrcMessageParseError> {
@@ -9,7 +9,7 @@ fn deserialize_irc_message(msg: &str) -> Result<RawIrcMessage, RawIrcMessagePars
 }
 
 #[cfg(test)]
-const SHIT_TON: &'static str = include_str!("../logs/logs.txt");
+const SHIT_TON: &'static str = include_str!("../../logs/logs.txt");
 
 fn deserialize_shit_ton(c: &mut Criterion) {
     let messages: Vec<&str> = SHIT_TON.lines().collect();
@@ -21,16 +21,6 @@ fn deserialize_shit_ton(c: &mut Criterion) {
         }
         return start.elapsed();
     }));
-}
-
-fn format_irc_message(c: &mut Criterion) {
-    static TEST_MSG: &str = "@badge-info=subscriber/37;badges=subscriber/36,moments/3;client-nonce=495183297aef9a105dc62a29b36fbc99;color=#FF4500;display-name=luistacoz;emotes=;first-msg=0;flags=;id=db6c8616-7716-4150-9109-59172ec9e5d9;mod=0;returning-chatter=0;room-id=71092938;subscriber=1;tmi-sent-ts=1680318925519;turbo=0;user-id=84483850;user-type= :luistacoz!luistacoz@luistacoz.tmi.twitch.tv PRIVMSG #xqc :HYPERDANSGAME LOOKS VILE\r\n";
-    let parsed = RawIrcMessage::try_from(black_box(TEST_MSG)).unwrap();
-    c.bench_function("Format IRC Message", |b| {
-        b.iter(|| {
-            black_box(parsed.to_string());
-        });
-    });
 }
 
 fn build_and_format_owned_messages(c: &mut Criterion) {
@@ -70,5 +60,5 @@ fn build_and_format_owned_messages(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, deserialize_shit_ton, format_irc_message, build_and_format_owned_messages);
+criterion_group!(benches, deserialize_shit_ton, build_and_format_owned_messages);
 criterion_main!(benches);

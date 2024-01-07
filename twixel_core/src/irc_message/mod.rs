@@ -74,7 +74,7 @@ mod tests {
         assert_eq!(correct, parsed)
     }
 
-    static SHIT_TON: &'static str = include_str!("../../logs/logs.txt");
+    static SHIT_TON: &'static str = include_str!("../../../logs/logs.txt");
 
     #[test]
     fn test_a_shit_ton() -> Result<(), IrcMessageParseError> {

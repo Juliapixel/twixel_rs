@@ -211,6 +211,7 @@ pub(crate) struct RawIrcTags {
 impl RawIrcTags {
     /// tries to parse a [RawIrcTags] from the tags part of an IRC message, without
     /// the leading `@` and the trailing space
+    #[inline]
     pub fn new(raw: &str, raw_start_idx: usize, raw_end_idx: usize) -> Option<Self> {
         let mut tags = Vec::new();
 

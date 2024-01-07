@@ -1,7 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use env_logger::Env;
-use twitch_irc::{connection::{Connection, ConnectionError}, user::ClientInfo, auth::Auth, irc_message::{owned::OwnedIrcMessage, command::IrcCommand}};
+use twixel_core::{
+    connection::{Connection, ConnectionError},
+    user::ClientInfo, auth::Auth,
+    irc_message::{owned::OwnedIrcMessage, command::IrcCommand, tags::RawTag}
+};
 
 #[tokio::main]
 async fn main() -> Result<(), ConnectionError> {
@@ -17,14 +21,14 @@ async fn main() -> Result<(), ConnectionError> {
         tags: None,
         prefix: None,
         command: IrcCommand::Join,
-        params: vec!["#julialuxel,#xqc,#pokelawls,#forsen,#erobb221,#psp1g,#dizzy,#hasanabi,#esfandtv,#omie,#summit1g,#shroud".into()]
+        params: vec!["#julialuxel,#xqc,#pokelawls,#forsen,#erobb221,#psp1g,#dizzy,#hasanabi,#esfandtv,#omie,#summit1g,#shroud,#emiru".into()]
     }).await?;
     loop {
         let recv = conn.receive().await?;
         for i in recv {
-            println!("{}", serde_json::to_string_pretty(&i).unwrap());
+            if i.get_command() == IrcCommand::PrivMsg {
+                println!("{} {} {}", i.get_param(0).unwrap(), i.get_tag(RawTag::DisplayName).unwrap(), i.get_param(1).unwrap())
+            }
         }
     }
-
-    Ok(())
 }

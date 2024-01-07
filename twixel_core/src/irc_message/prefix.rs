@@ -10,6 +10,7 @@ pub(crate) enum RawPrefix {
 }
 
 impl RawPrefix {
+    #[inline]
     pub fn parse(raw: &str, prefix_start: usize, prefix_end: usize) -> Option<Self> {
         match memchr::memchr(b'!', raw[prefix_start..prefix_end].as_bytes()) {
             Some(user_separator) => {
@@ -47,6 +48,7 @@ pub enum OwnedPrefix {
 }
 
 impl From<&str> for OwnedPrefix {
+    #[inline]
     fn from(value: &str) -> Self {
         match value.split_once('@') {
             Some(splits) => {

@@ -83,6 +83,7 @@ impl RawIrcMessage {
 impl TryFrom<&str> for RawIrcMessage {
     type Error = RawIrcMessageParseError;
 
+    #[inline]
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         use RawIrcMessageParseError as E;
 
