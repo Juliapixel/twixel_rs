@@ -47,7 +47,19 @@ impl ConnectionPool {
         })
     }
 
-    pub async fn join_channel(&mut self, channel_login: String) -> Result<(), PoolError> {
+    pub async fn part_channel(&mut self, channel_login: &str) -> Result<(), PoolError> {
+        match self.channels.remove(channel_login).flatten().and_then(|c| self.pool.get_mut(c)) {
+            Some(conn) => {
+                conn.part(channel_login).await?;
+                Ok(())
+            },
+            None => {
+                Err(PoolError::ChannelNotFound(channel_login.into()))
+            },
+        }
+    }
+
+    pub async fn join_channel(&mut self, channel_login: &str) -> Result<(), PoolError> {
         match self
             .pool
             .iter_mut()
@@ -55,17 +67,17 @@ impl ConnectionPool {
             .find(|c| c.1.get_channel_count() < MAX_CHANNELS_PER_CONNECTION)
         {
             Some((idx, conn)) => {
-                conn.join(&channel_login).await?;
-                self.channels.insert(channel_login, Some(idx));
+                conn.join(channel_login).await?;
+                self.channels.insert(channel_login.into(), Some(idx));
                 Ok(())
             }
             None => {
                 let mut conn =
-                    Connection::new(core::iter::once(&channel_login), self.auth_info.clone());
+                    Connection::new(core::iter::once(channel_login), self.auth_info.clone());
                 conn.start().await?;
                 self.pool.push(conn);
                 self.channels
-                    .insert(channel_login, Some(self.pool.len() - 1));
+                    .insert(channel_login.into(), Some(self.pool.len() - 1));
 
                 Ok(())
             }

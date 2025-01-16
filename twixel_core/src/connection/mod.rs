@@ -155,6 +155,14 @@ impl Connection {
         Ok(())
     }
 
+    pub async fn part(&mut self, channel: &str) -> Result<(), ConnectionError> {
+        if self.channel_list.remove(channel) {
+            self.send(MessageBuilder::part(std::iter::once(channel)))
+                .await?;
+        }
+        Ok(())
+    }
+
     /// receives twitch messages directly
     pub async fn receive(&mut self) -> Result<SmallVec<[IrcMessage<'static>; 4]>, ConnectionError> {
         if let Some(socket) = &mut self.socket {

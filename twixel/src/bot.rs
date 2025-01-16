@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use futures::StreamExt;
-use owo_colors::OwoColorize;
 use twixel_core::{
     irc_message::tags::OwnedTag, Auth, ConnectionPool, IrcCommand, IrcMessage, MessageBuilder,
 };
 
-use crate::command::{Command, CommandContext};
+use crate::{
+    command::{Command, CommandContext},
+    guard::GuardContext,
+};
 
 pub struct Bot {
     conn_pool: ConnectionPool,
@@ -26,55 +28,6 @@ pub enum BotCommand {
     Reconnect(usize),
     JoinChannel(String),
     PartChannel(String),
-}
-
-fn handle_message(cx: CommandContext<BotCommand>) {
-    log::trace!("received message of kind: {}", cx.msg.get_command());
-    match cx.msg.get_command() {
-        IrcCommand::Ping => {
-            cx.bot_tx
-                .blocking_send(BotCommand::SendRawIrc(
-                    MessageBuilder::pong(cx.msg.get_param(0).unwrap()).to_owned(),
-                    cx.connection_idx,
-                ))
-                .unwrap();
-        }
-        IrcCommand::AuthSuccessful => {
-            log::info!("auth successful")
-        }
-        IrcCommand::PrivMsg => {
-            log::warn!("need to handle PrivMsg");
-            let color = cx.msg.get_color().unwrap_or([127, 127, 127]);
-            println!(
-                "{} {} {}: {:?}",
-                cx.msg.get_timestamp().unwrap_or(chrono::Utc::now()),
-                cx.msg.get_param(0).unwrap().dimmed(),
-                cx.msg
-                    .get_tag(OwnedTag::DisplayName)
-                    .unwrap()
-                    .truecolor(color[0], color[1], color[2]),
-                cx.msg.get_param(1).unwrap().split_at(1).1
-            );
-            cx.bot_tx
-                .blocking_send(BotCommand::SendMessage {
-                    channel_login: "julialuxel".into(),
-                    message: "test".into(),
-                    reply_id: cx.msg.get_tag(OwnedTag::Id).map(|s| s.to_owned()),
-                })
-                .unwrap();
-        }
-        IrcCommand::Reconnect => {
-            cx.bot_tx
-                .blocking_send(BotCommand::Reconnect(cx.connection_idx))
-                .unwrap();
-        }
-        IrcCommand::Useless => {
-            log::trace!("")
-        }
-        _ => {
-            log::error!("untreated message kind: {:?}", cx.msg.raw())
-        }
-    }
 }
 
 const CMD_CHANNEL_SIZE: usize = 128;
@@ -97,10 +50,10 @@ impl Bot {
 
     pub async fn add_channels(
         mut self,
-        channels: impl IntoIterator<Item = impl Into<String>>,
+        channels: impl IntoIterator<Item = &str>,
     ) -> Self {
         for i in channels {
-            self.conn_pool.join_channel(i.into()).await.unwrap();
+            self.conn_pool.join_channel(i).await.unwrap();
         }
         self
     }
@@ -120,14 +73,22 @@ impl Bot {
     }
 
     pub async fn run(mut self) {
-        tokio::spawn(async move {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(CMD_CHANNEL_SIZE);
+        let cmds = self.commands;
+        let receiver = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     Some(recv) = self.conn_pool.next() => {
                         let idx = recv.as_ref().map(|r| r.1).ok();
                         for msg in recv.map(|r| r.0).into_iter().flatten() {
-                            let cx = self.get_cmd_cx(msg, idx.unwrap());
-                            tokio::task::spawn_blocking(move || { handle_message(cx); });
+                            let cx = CommandContext {
+                                msg,
+                                connection_idx: idx.unwrap(),
+                                bot_tx: self.cmd_tx.clone(),
+                                data_store: Arc::default()
+                            };
+                            let new_tx = tx.clone();
+                            tokio::spawn(async move { new_tx.send(cx).await.unwrap(); });
                         }
                     }
                     cmd = self.cmd_rx.recv() => {
@@ -149,16 +110,62 @@ impl Bot {
                             Some(BotCommand::Reconnect(idx)) => {
                                 self.conn_pool.restart_connection(idx).await.unwrap();
                             },
-                            Some(_) => {
-                                todo!("handle other BotCommands!!!")
+                            Some(BotCommand::JoinChannel(channel)) => {
+                                self.conn_pool.join_channel(&channel).await.unwrap();
                             },
-                            None => break,
+                            Some(BotCommand::PartChannel(channel)) => {
+                                self.conn_pool.part_channel(&channel).await.unwrap();
+                            },
+                            Some(_) => {
+                                todo!("handle other BotCommands!!!");
+                            },
+                            None => {
+                                log::error!("COMMAND CHANNEL BROKEN");
+                                break;
+                            },
                         }
                     }
                 }
             }
-        })
-        .await
-        .unwrap();
+        });
+        let cmd_handler = tokio::spawn(async move {
+            let cmds = cmds;
+            loop {
+                let cx = rx.recv().await.unwrap();
+                match cx.msg.get_command() {
+                    IrcCommand::Ping => {
+                        cx.bot_tx
+                            .blocking_send(BotCommand::SendRawIrc(
+                                MessageBuilder::pong(cx.msg.get_param(0).unwrap()).to_owned(),
+                                cx.connection_idx,
+                            ))
+                            .unwrap();
+                        continue;
+                    },
+                    IrcCommand::AuthSuccessful => {
+                        log::info!("auth successful");
+                        continue;
+                    },
+                    IrcCommand::Reconnect => {
+                        cx.bot_tx
+                            .blocking_send(BotCommand::Reconnect(cx.connection_idx))
+                            .unwrap();
+                        continue;
+                    },
+                    IrcCommand::PrivMsg => (),
+                    _ => {
+                        log::error!("untreated message kind: {:?}", cx.msg.raw())
+                    }
+                }
+                let gcx = GuardContext { message: &cx.msg };
+                let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)) else {
+                    continue;
+                };
+                cmd.handle(cx).await;
+            }
+        });
+        let (h, r) = tokio::join!(cmd_handler, receiver);
+        h.unwrap();
+        r.unwrap();
     }
 }

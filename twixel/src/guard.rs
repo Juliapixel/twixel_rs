@@ -1,14 +1,16 @@
-use twixel_core::{irc_message::tags::OwnedTag, user::ChannelInfo, IrcCommand, IrcMessage};
+#![allow(unused)]
+
+use twixel_core::{irc_message::tags::OwnedTag, IrcCommand, IrcMessage};
 
 pub struct GuardContext<'a> {
-    channel_info: &'a ChannelInfo,
-    message: &'a IrcMessage<'a>,
+    // pub channel_info: &'a ChannelInfo,
+    pub message: &'a IrcMessage<'a>,
 }
 
 impl<'a> GuardContext<'a> {
-    pub fn channel_info(&self) -> &'a ChannelInfo {
-        self.channel_info
-    }
+    // pub fn channel_info(&self) -> &'a ChannelInfo {
+    //     self.channel_info
+    // }
 
     pub fn message(&self) -> &IrcMessage<'a> {
         self.message
@@ -148,6 +150,23 @@ impl<A: Guard + 'static> FromIterator<A> for AnyGuard {
     }
 }
 
+pub struct CooldownGuard {
+    cooldown: std::time::Duration,
+    last_used: parking_lot::Mutex<std::time::Instant>,
+}
+
+impl Guard for CooldownGuard {
+    fn check(&self, _ctx: &GuardContext) -> bool {
+        // on cooldown
+        if std::time::Instant::now() - *self.last_used.lock() <= self.cooldown {
+            false
+        } else {
+            *self.last_used.lock() = std::time::Instant::now();
+            true
+        }
+    }
+}
+
 pub struct UserGuard {
     user_id: String,
 }
@@ -198,6 +217,6 @@ impl ChannelGuard {
 
 impl Guard for ChannelGuard {
     fn check(&self, ctx: &GuardContext) -> bool {
-        self.channel_id.as_str() == &*ctx.channel_info.id
+        self.channel_id.as_str() == ctx.message().get_tag(OwnedTag::RoomId).unwrap_or_default()
     }
 }

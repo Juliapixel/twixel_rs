@@ -53,12 +53,7 @@ impl<'a> MessageBuilder<'a> {
             } else {
                 write!(&mut out, ";").unwrap();
             }
-            write!(
-                &mut out,
-                "{}={}",
-                Into::<&str>::into(&tag.0),
-                tag.1
-            ).unwrap()
+            write!(&mut out, "{}={}", Into::<&str>::into(&tag.0), tag.1).unwrap()
         }
 
         if !self.tags.is_empty() {
@@ -75,12 +70,7 @@ impl<'a> MessageBuilder<'a> {
 
         // params
         for param in self.params.into_iter() {
-            write!(
-                &mut out,
-                " {}",
-                param,
-            )
-            .unwrap();
+            write!(&mut out, " {}", param,).unwrap();
         }
 
         // CRLF EOL
@@ -128,6 +118,17 @@ impl<'a> MessageBuilder<'a> {
             write!(&mut channel_list, "#{}", chan).unwrap()
         }
         Self::new(IrcCommand::Join).add_param(channel_list)
+    }
+
+    pub fn part(channels: impl IntoIterator<Item = impl std::fmt::Display>) -> Self {
+        let mut channel_list = String::new();
+        for (idx, chan) in channels.into_iter().enumerate() {
+            if idx > 0 {
+                write!(&mut channel_list, ",").unwrap()
+            }
+            write!(&mut channel_list, "#{}", chan).unwrap()
+        }
+        Self::new(IrcCommand::Part).add_param(channel_list)
     }
 
     pub fn cap_req() -> Self {
