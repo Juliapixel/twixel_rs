@@ -14,7 +14,7 @@ use super::{
     command::IrcCommand,
     error::IrcMessageParseError,
     iter::IrcMessageParseIter,
-    tags::{OwnedTag, RawTag},
+    tags::{OwnedTag, RawTag, TagsIter},
     ToIrcMessage,
 };
 
@@ -61,6 +61,14 @@ impl<'a> IrcMessage<'a> {
             Some(s) => s.get_value(&self.raw, tag),
             None => None,
         }
+    }
+
+    pub fn tags(&self) -> impl Iterator<Item = (OwnedTag, &str)> {
+        self.tags
+            .as_ref()
+            .map(|t| t.iter(self.raw()))
+            .into_iter()
+            .flatten()
     }
 
     #[cfg(feature = "chrono")]
@@ -235,7 +243,7 @@ impl Serialize for IrcMessage<'_> {
     {
         struct TagsSer<'a> {
             raw: &'a str,
-            tags: &'a [(RawTag, Range<usize>)],
+            tags: &'a RawIrcTags,
         }
 
         impl Serialize for TagsSer<'_> {
@@ -243,11 +251,7 @@ impl Serialize for IrcMessage<'_> {
             where
                 S: serde::Serializer,
             {
-                serializer.collect_map(
-                    self.tags
-                        .iter()
-                        .map(|t| (t.0.to_string(self.raw), &self.raw[t.1.clone()])),
-                )
+                serializer.collect_map(self.tags.iter(self.raw))
             }
         }
 
@@ -304,7 +308,7 @@ impl Serialize for IrcMessage<'_> {
             "tags",
             &self.tags.as_ref().map(|t| TagsSer {
                 raw: &self.raw,
-                tags: &t.tags,
+                tags: t,
             }),
         )?;
 

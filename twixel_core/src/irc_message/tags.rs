@@ -255,6 +255,10 @@ impl RawIrcTags {
         src.get(found.1.clone())
     }
 
+    pub fn iter<'a>(&'a self, src: &'a str) -> TagsIter<'a> {
+        TagsIter::new(self, src)
+    }
+
     pub fn get_color(&self, src: &str) -> Option<[u8; 3]> {
         let char_to_int =
             |byte: u8| -> Option<u8> { char::from_u32(byte as u32)?.to_digit(16).map(|v| v as u8) };
@@ -279,6 +283,31 @@ impl RawIrcTags {
             .parse::<i64>()
             .ok()?;
         DateTime::<Utc>::from_timestamp(ts / 1000, 0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TagsIter<'a> {
+    src: &'a str,
+    iter: core::slice::Iter<'a, (RawTag, std::ops::Range<usize>)>,
+}
+
+impl<'a> TagsIter<'a> {
+    fn new(raw: &'a RawIrcTags, src: &'a str) -> Self {
+        Self {
+            src,
+            iter: raw.tags.iter(),
+        }
+    }
+}
+
+impl<'a> Iterator for TagsIter<'a> {
+    type Item = (OwnedTag, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|(rt, range)| (rt.to_owned(self.src), &self.src[range.clone()]))
     }
 }
 
