@@ -15,7 +15,7 @@ pub struct MessageBuilder<'a> {
     pub params: Vec<Cow<'a, str>>,
 }
 
-impl<'a> std::fmt::Debug for MessageBuilder<'a> {
+impl std::fmt::Debug for MessageBuilder<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessageBuilder")
             .field("tags", &self.tags)
@@ -46,40 +46,45 @@ impl<'a> MessageBuilder<'a> {
     pub fn build(self) -> String {
         let mut out = String::new();
 
-        if !self.tags.is_empty() {
-            write!(&mut out, "@").unwrap();
-            let mut first = true;
-            for i in self.tags {
-                write!(
-                    &mut out,
-                    "{}{}={}",
-                    if first { "" } else { ";" },
-                    Into::<&str>::into(&i.0),
-                    i.1
-                )
-                .unwrap();
-                first = false;
+        // tags
+        for (idx, tag) in self.tags.iter().enumerate() {
+            if idx == 0 {
+                write!(&mut out, "@").unwrap();
+            } else {
+                write!(&mut out, ";").unwrap();
             }
+            write!(
+                &mut out,
+                "{}={}",
+                Into::<&str>::into(&tag.0),
+                tag.1
+            ).unwrap()
+        }
+
+        if !self.tags.is_empty() {
             write!(&mut out, " ").unwrap();
         }
+
+        // prefix
         if let Some(prefix) = &self.prefix {
             write!(&mut out, "{} ", prefix).unwrap();
         }
+
+        // command
         write!(&mut out, "{}", self.command).unwrap();
 
-        for (i, val) in self.params.iter().enumerate() {
+        // params
+        for param in self.params.into_iter() {
             write!(
                 &mut out,
-                " {}{}",
-                val,
-                if i == self.params.len() - 1 {
-                    "\r\n"
-                } else {
-                    ""
-                }
+                " {}",
+                param,
             )
             .unwrap();
         }
+
+        // CRLF EOL
+        write!(&mut out, "\r\n").unwrap();
 
         out
     }
