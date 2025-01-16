@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "twixel",
     "twixel_core",
 ]
 resolver = "2"

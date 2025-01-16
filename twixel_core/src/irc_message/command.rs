@@ -1,5 +1,5 @@
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 macro_rules! commands {
@@ -8,7 +8,7 @@ macro_rules! commands {
         [$($var:ident),+]
         $($key:literal = $val:ident),+
     ) => {
-        #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "&'static str"))]
+        #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "&'static str", try_from = "&str"))]
         #[derive(Debug, PartialEq, Eq, Clone, Copy)]
         pub enum $name {
             $($var,)*
@@ -16,7 +16,7 @@ macro_rules! commands {
 
         #[derive(Debug, Clone, PartialEq, Eq, Error)]
         pub enum $error {
-            #[error("the IRC command was not identified!")]
+            #[error("the IRC command \"{0}\" was not identified!")]
             Failed(String),
         }
 
@@ -39,10 +39,16 @@ macro_rules! commands {
                 }
             }
         }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", Into::<&str>::into(*self))
+            }
+        }
     };
 }
 
-commands!{
+commands! {
     IrcCommand, IrcCommandError,
     [
         Pass,

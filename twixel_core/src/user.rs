@@ -1,6 +1,8 @@
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
-use crate::{auth::Auth, irc_message::{owned::OwnedIrcMessage, command::IrcCommand}};
+use crate::{auth::Auth, irc_message::builder::MessageBuilder};
 
 const MESSAGE_COOLDOWN_STANDARD: Duration = Duration::from_millis(1500);
 const MESSAGE_COOLDOWN_PRIVILEGED: Duration = Duration::from_millis(300);
@@ -9,6 +11,12 @@ const MESSAGE_COOLDOWN_PRIVILEGED: Duration = Duration::from_millis(300);
 pub struct SelfStatus {
     pub channels: hashbrown::HashMap<String, ChannelInfo>,
     pub last_sent_message: std::time::Instant,
+}
+
+impl Default for SelfStatus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SelfStatus {
@@ -21,15 +29,16 @@ impl SelfStatus {
 
     pub fn join_channel(&mut self, channel: String) {
         self.channels.insert(
-            channel,
+            channel.clone(),
             // TODO: decide when we should request the target channel's display name and id
             // or if they should just be passed to this funcion
             ChannelInfo {
+                login: channel.into(),
                 display_name: todo!(),
                 id: todo!(),
                 channel_roles: ChannelRoles::default(),
                 last_message: std::time::Instant::now(),
-            }
+            },
         );
     }
 
@@ -49,26 +58,18 @@ impl SelfStatus {
         self.channels.get_mut(channel)
     }
 
-    pub fn get_join_message(&self) -> Option<OwnedIrcMessage> {
+    pub fn get_join_message(&self) -> Option<MessageBuilder> {
         if !self.channels.is_empty() {
-            let mut params = Vec::new();
-            for i in self.channels.keys() {
-                params.push(format!("#{i}"))
-            }
-            return Some(OwnedIrcMessage{
-                tags: None,
-                prefix: None,
-                command: IrcCommand::Join,
-                params,
-            });
+            Some(MessageBuilder::join(self.channels.keys()))
         } else {
-            return None;
+            None
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct ChannelInfo {
+    pub login: Arc<str>,
     pub display_name: Arc<str>,
     pub id: Arc<str>,
     pub channel_roles: ChannelRoles,
@@ -76,6 +77,21 @@ pub struct ChannelInfo {
 }
 
 impl ChannelInfo {
+    pub async fn new(channel: &str) -> Self {
+        // todo!("choose how to create a ChannelInfo");
+        ChannelInfo {
+            login: channel.into(),
+            display_name: channel.into(),
+            id: "".into(),
+            channel_roles: ChannelRoles::empty(),
+            last_message: std::time::Instant::now(),
+        }
+    }
+
+    pub async fn new_from_id(channel: &str) -> Self {
+        todo!("choose how to create a ChannelInfo")
+    }
+
     /// changes ``self.last_message`` to the current instant.
     pub fn message_sent_now(&mut self) {
         self.last_message = std::time::Instant::now();
@@ -87,37 +103,43 @@ impl ChannelInfo {
     }
 
     pub fn is_privileged(&self) -> bool {
-        self.channel_roles.is_moderator || self.channel_roles.is_vip
+        self.channel_roles.contains(ChannelRoles::is_moderator)
+            || self.channel_roles.contains(ChannelRoles::is_vip)
     }
 
     /// returns ``true`` if you cannot send message
     pub fn is_on_cooldown(&self) -> bool {
         if self.is_privileged() {
-            return self.last_message.elapsed() < MESSAGE_COOLDOWN_PRIVILEGED;
+            self.last_message.elapsed() < MESSAGE_COOLDOWN_PRIVILEGED
         } else {
-            return self.last_message.elapsed() < MESSAGE_COOLDOWN_STANDARD;
+            self.last_message.elapsed() < MESSAGE_COOLDOWN_STANDARD
         }
     }
 
     /// returns ``Some(Duration)`` if you're on cooldown, with the duration being how long it will take until you are
     /// allowed to send another message, otherwise returns ``None``.
     pub fn time_until_cooldown_over(&self) -> Option<std::time::Duration> {
-        if !self.is_on_cooldown() { return None }
-        return Some(
-                if self.is_privileged() {
-                    MESSAGE_COOLDOWN_PRIVILEGED
-                } else {
-                    MESSAGE_COOLDOWN_STANDARD
-                } - self.last_message.elapsed()
-        );
+        if !self.is_on_cooldown() {
+            return None;
+        }
+        Some(
+            if self.is_privileged() {
+                MESSAGE_COOLDOWN_PRIVILEGED
+            } else {
+                MESSAGE_COOLDOWN_STANDARD
+            } - self.last_message.elapsed(),
+        )
     }
 }
 
-#[derive(Clone, Copy, Default, Debug)]
-pub struct ChannelRoles {
-    pub is_moderator: bool,
-    pub is_vip: bool,
-    pub is_sub: bool,
+bitflags::bitflags! {
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    #[derive(Clone, Copy, Default, Debug)]
+    pub struct ChannelRoles: u8 {
+        const is_moderator = 1;
+        const is_vip = 1 << 1;
+        const is_sub = 1 << 2;
+    }
 }
 
 #[derive(Clone)]
@@ -128,37 +150,29 @@ pub struct ClientInfo {
 
 impl ClientInfo {
     pub fn new(auth: Auth) -> Self {
-        ClientInfo{
-            auth: auth,
-            self_info: SelfStatus::new()
+        ClientInfo {
+            auth,
+            self_info: SelfStatus::new(),
         }
     }
 
-    pub fn get_initial_messages(&self) -> Vec<OwnedIrcMessage> {
+    pub fn get_initial_messages(&self) -> Vec<MessageBuilder> {
         let mut out = Vec::new();
 
         let (nick, pass) = self.get_auth_commands();
         out.push(pass);
         out.push(nick);
 
-        let cap_req = OwnedIrcMessage {
-            tags: None,
-            prefix: None,
-            command: IrcCommand::Cap,
-            params: vec![
-                "REQ".into(),
-                ":twitch.tv/commands twitch.tv/tags".into()
-            ],
-        };
+        let cap_req = MessageBuilder::cap_req();
         out.push(cap_req);
 
         if let Some(join) = self.self_info.get_join_message() {
             out.push(join);
         }
-        return out;
+        out
     }
 
-    fn get_auth_commands(&self) -> (OwnedIrcMessage, OwnedIrcMessage) {
+    fn get_auth_commands(&self) -> (MessageBuilder<'_>, MessageBuilder<'_>) {
         self.auth.into_commands()
     }
 }

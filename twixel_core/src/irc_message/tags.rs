@@ -1,10 +1,10 @@
-use memchr::memchr_iter;
-use thiserror::Error;
-#[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
 #[cfg(feature = "chrono")]
-use chrono::{Utc, DateTime};
+use chrono::{DateTime, Utc};
+use memchr::memchr_iter;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use thiserror::Error;
 
 macro_rules! raw_tags {
     (
@@ -38,7 +38,7 @@ macro_rules! raw_tags {
                 }
             }
 
-            pub fn to_owned<'a>(&self, src: &'a str) -> $tag {
+            pub fn to_owned(&self, src: &str) -> $tag {
                 match self {
                     $(Self::$name => $tag::$name,)*
                     Self::Unknown(r) => $tag::Unknown(String::from(&src[r.clone()]))
@@ -100,25 +100,38 @@ raw_tags!(
     /// use [escape sequences](https://ircv3.net/specs/extensions/message-tags.html#escaping-values)
     /// for invalid characters
     OwnedTag, RawTag,
-    /// the ID of the message
+    /// the kind of message, not to be confused with Id
     "msg-id" = MsgId,
+    /// badges of the message
     "badges" = Badges,
+    /// badges of the message in the source channel, only used when shared chat is enabled
+    "source-badges" = SourceBadges,
+    /// info for the badges of the message
     "badge-info" = BadgeInfo,
+    /// info for the badges of the message in the source channel, only used when shared chat is enabled
+    "source-badge-info" = SourceBadgeInfo,
     "display-name" = DisplayName,
     "emote-only" = EmoteOnly,
+    /// comma-delimited list of emotes in the form `<emote ID>:<start position>-<end position>`
     "emotes" = Emotes,
     "flags" = Flags,
-    /// the ID of the user
+    /// the ID of the message
     "id" = Id,
+    /// the ID of the message sent on the source channel, only used when shared chat is enabled
+    "source-id" = SourceId,
     /// 1 if user is a moderator, 0 if not
     "mod" = Mod,
+    /// the ID of the channel the message was sent in
     "room-id" = RoomId,
+    /// the ID of the source channel of the message, only used when shared chat is enabled
+    "source-room-id" = SourceRoomId,
     /// 1 if user is subscribed, 0 if not
     "subscriber" = Subscriber,
     /// timestamp of message, in milliseconds since unix epoch
     "tmi-sent-ts" = TmiSentTs,
     /// 1 if user is turbo, 0 if not
     "turbo" = Turbo,
+    /// the ID of the user
     "user-id" = UserId,
     "user-type" = UserType,
     "client-nonce" = ClientNonce,
@@ -143,6 +156,7 @@ raw_tags!(
     /// 1 if sub only mode is enabled, 0 if not
     "subs-only" = SubsOnly,
     "msg-param-cumulative-months" = MsgParamCumulativeMonths,
+    "msg-param-community-gift-id" = MsgParamCommunityGiftId,
     "msg-param-displayName" = MsgParamDisplayName,
     "msg-param-login" = MsgParamLogin,
     "msg-param-months" = MsgParamMonths,
@@ -168,7 +182,6 @@ raw_tags!(
     "system-msg" = SystemMsg,
     "emote-sets" = EmoteSets,
     "thread-id" = ThreadId,
-    "message-id" = MessageId,
     "returning-chatter" = ReturningChatter,
     /// color of user, formated as `#XXXXXX`, in RBG hex
     "color" = Color,
@@ -199,7 +212,7 @@ pub enum IRCTagParseError {
     #[error("failed to parse the tag due to unknown error: {0}")]
     ContentParseFailed(String),
     #[error("tag identifier not recognized: {0}")]
-    UnknownIdentifier(String)
+    UnknownIdentifier(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,7 +225,7 @@ impl RawIrcTags {
     /// tries to parse a [RawIrcTags] from the tags part of an IRC message, without
     /// the leading `@` and the trailing space
     #[inline]
-    pub fn new(raw: &str, raw_start_idx: usize, raw_end_idx: usize) -> Option<Self> {
+    pub(crate) fn new(raw: &str, raw_start_idx: usize, raw_end_idx: usize) -> Option<Self> {
         let mut tags = Vec::new();
 
         // position of last found start of tag
@@ -222,94 +235,50 @@ impl RawIrcTags {
             let pos = i + raw_start_idx + 1;
 
             // positon of current parsed tag's divider
-            let divider = memchr::memchr(b'=', &raw.as_bytes()[last_pos..pos-1])? + last_pos;
-            tags.push((RawTag::parse(&raw, last_pos..divider), divider+1..pos-1));
+            let divider = memchr::memchr(b'=', &raw.as_bytes()[last_pos..pos - 1])? + last_pos;
+            tags.push((RawTag::parse(raw, last_pos..divider), divider + 1..pos - 1));
 
             last_pos = pos;
         }
         // parsing the last tag
         let divider = memchr::memchr(b'=', &raw.as_bytes()[last_pos..])? + last_pos;
-        tags.push((RawTag::parse(&raw, last_pos..divider), divider+1..raw_end_idx));
+        tags.push((
+            RawTag::parse(raw, last_pos..divider),
+            divider + 1..raw_end_idx,
+        ));
 
-        return Some(Self { tags });
+        Some(Self { tags })
     }
 
-    pub fn get_value<'a>(&self, src: &'a str, tag: RawTag) -> Option<&'a str> {
-        let found = self.tags.iter().find(|t| t.0 == tag )?;
+    pub fn get_value<'a>(&self, src: &'a str, tag: OwnedTag) -> Option<&'a str> {
+        let found = self.tags.iter().find(|t| t.0.to_owned(src) == tag)?;
         src.get(found.1.clone())
     }
 
     pub fn get_color(&self, src: &str) -> Option<[u8; 3]> {
-        let char_to_int = |byte: u8| -> Option<u8> {
-            char::from_u32((byte as u32) << 24)?.to_digit(16).map(|v| v as u8)
-        };
+        let char_to_int =
+            |byte: u8| -> Option<u8> { char::from_u32(byte as u32)?.to_digit(16).map(|v| v as u8) };
 
-        let val = self.get_value(src, RawTag::Color)?;
+        let val = self.get_value(src, OwnedTag::Color)?;
         if val.len() == 7 {
             let individuals = val[1..].as_bytes();
-            return Some([
-                char_to_int(individuals[1])? * 16 + char_to_int(individuals[2])?,
-                char_to_int(individuals[3])? * 16 + char_to_int(individuals[4])?,
-                char_to_int(individuals[5])? * 16 + char_to_int(individuals[6])?,
-            ]);
+            Some([
+                char_to_int(individuals[0])? * 16 + char_to_int(individuals[1])?,
+                char_to_int(individuals[2])? * 16 + char_to_int(individuals[3])?,
+                char_to_int(individuals[4])? * 16 + char_to_int(individuals[5])?,
+            ])
         } else {
-            return None;
+            None
         }
     }
 
     #[cfg(feature = "chrono")]
     pub fn get_timestamp(&self, src: &str) -> Option<DateTime<Utc>> {
-        let ts = self.get_value(src, RawTag::TmiSentTs)?.parse::<i64>().ok()?;
-        return DateTime::<Utc>::from_timestamp(ts / 1000, 0);
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct OwnedIrcTags {
-    pub(crate) tags: Vec<(OwnedTag, String)>
-}
-
-impl OwnedIrcTags {
-    pub fn get_value(&self, tag: OwnedTag) -> Option<&str> {
-        Some(self.tags.iter().find(|t| t.0 == tag )?.1.as_str())
-    }
-
-    pub fn get_color(&self) -> Option<[u8; 3]> {
-        let char_to_int = |byte: u8| -> Option<u8> {
-            char::from_u32((byte as u32) << 24)?.to_digit(16).map(|v| v as u8)
-        };
-
-        let val = self.get_value(OwnedTag::Color)?;
-        if val.len() == 7 {
-            let individuals = val[1..].as_bytes();
-            return Some([
-                char_to_int(individuals[1])? * 16 + char_to_int(individuals[2])?,
-                char_to_int(individuals[3])? * 16 + char_to_int(individuals[4])?,
-                char_to_int(individuals[5])? * 16 + char_to_int(individuals[6])?,
-            ]);
-        } else {
-            return None;
-        }
-    }
-
-    #[cfg(feature = "chrono")]
-    pub fn get_timestamp(&self) -> Option<DateTime<Utc>> {
-        let ts = self.get_value(OwnedTag::TmiSentTs)?.parse::<i64>().ok()?;
-        return DateTime::<Utc>::from_timestamp(ts / 1000, 0);
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for OwnedIrcTags {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        serializer.collect_map(self.tags.iter().map(|t| {
-            (
-                Into::<&str>::into(&t.0),
-                t.1.as_str()
-            )
-        }))
+        let ts = self
+            .get_value(src, OwnedTag::TmiSentTs)?
+            .parse::<i64>()
+            .ok()?;
+        DateTime::<Utc>::from_timestamp(ts / 1000, 0)
     }
 }
 

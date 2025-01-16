@@ -1,4 +1,4 @@
-use crate::{connection::Connection, user::ClientInfo, auth::Auth, irc_message::message::IrcMessage};
+use crate::{auth::Auth, connection::{error::ConnectionError, Connection}, irc_message::{builder::MessageBuilder, message::IrcMessage, tags::OwnedTag, ToIrcMessage}, user::ClientInfo};
 use std::{sync::{Arc, Mutex, Condvar}, collections::VecDeque};
 use log::debug;
 use rand::Rng;
@@ -31,7 +31,7 @@ impl ClientBuilder {
     pub fn new(username: String, token: String) -> Self {
         Self {
             client_info: ClientInfo::new(
-                Auth::OAuth { username: username, token: token }
+                Auth::OAuth { username, token }
             )
         }
     }
@@ -47,18 +47,18 @@ impl ClientBuilder {
         self
     }
 
-    pub fn build(self) -> TwitchIRCClient {
+    pub fn build(self) -> TwitchIrcClient {
         self.into()
     }
 
-    pub async fn run(self) -> TwitchIRCClient {
+    pub async fn run(self) -> TwitchIrcClient {
         let mut client = self.build();
         client.run().await;
         return client;
     }
 }
 
-impl From<ClientBuilder> for TwitchIRCClient {
+impl From<ClientBuilder> for TwitchIrcClient {
     fn from(value: ClientBuilder) -> Self {
         Self {
             client_info: value.client_info.clone(),
@@ -67,42 +67,44 @@ impl From<ClientBuilder> for TwitchIRCClient {
     }
 }
 
-pub struct TwitchIRCClient {
+pub struct TwitchIrcClient {
     connection: Option<Connection>,
     client_info: ClientInfo,
 }
 
-impl TwitchIRCClient {
+impl TwitchIrcClient {
     pub fn is_running(&self) -> bool {
         self.connection.is_some()
     }
 
     pub async fn run(&mut self) {
         self.connection = Some(Connection::new(self.client_info.clone()).await);
-        self.connection.as_mut().unwrap().run().await;
+        self.connection.as_mut().unwrap().start().await;
     }
 
-    pub async fn send_message(&mut self, msg: IrcMessage) {
+    pub async fn send_message(&mut self, msg: impl ToIrcMessage) -> Result<(), ConnectionError> {
         if let Some(conn) = &mut self.connection {
             conn.send(msg).await;
         }
     }
 
-    pub async fn receive_message(&mut self) -> IrcMessage {
+    pub async fn receive_message(&mut self) -> Result<IrcMessage<'static>, ConnectionError> {
         if let Some(conn) = &mut self.connection {
-            conn.receive().await
+            conn.receive().await?
         } else {
-            panic!("can't receive messages before calling run() on TwitchIRCClient!");
+            panic!("can't receive messages before calling run() on TwitchIrcClient!");
         }
     }
 
-    pub async fn reply_to_message(&mut self, reply: String, msg: IrcMessage) {
-        let mut reply = IrcMessage::text(reply, msg.channel.clone().unwrap());
-        reply.add_tag("reply-parent-msg-id", msg.tags.get_message_id().unwrap());
-        self.send_message(reply).await;
+    pub async fn reply_to_message(&mut self, reply: &str, msg: IrcMessage<'_>) -> Result<(), ConnectionError> {
+        if let Some(reply_id) = msg.get_tag(OwnedTag::Id) {
+            let reply = MessageBuilder::privmsg(msg.get_param(0).unwrap(), &reply)
+                .add_tag(OwnedTag::ReplyParentMsgId, reply_id);
+
+            self.send_message(reply).await?;
+        }
+        Ok(())
     }
-
-
 }
 
 #[derive(Clone)]

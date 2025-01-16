@@ -1,16 +1,25 @@
-pub mod raw;
+use self::command::IrcCommand;
+
+pub mod builder;
 pub mod command;
+pub mod iter;
+pub mod message;
 pub mod prefix;
 pub mod tags;
-pub mod owned;
+
+pub trait ToIrcMessage {
+    fn to_message(self) -> String;
+
+    fn get_command(&self) -> IrcCommand;
+}
 
 pub mod error {
     use thiserror::Error;
 
-    use super::{tags::IRCTagParseError, command::IrcCommandError};
+    use super::{command::IrcCommandError, tags::IRCTagParseError};
 
     #[derive(Debug, Error)]
-    pub enum RawIrcMessageParseError {
+    pub enum IrcMessageParseError {
         #[error("failed to parse message due to bad tags: {0}")]
         TagParseError(#[from] IRCTagParseError),
         #[error("failed to parse message due to a missing prefix")]
@@ -24,7 +33,7 @@ pub mod error {
         #[error(transparent)]
         StructureError(#[from] IrcMessageStructureError),
         #[error("failed to parse message due to it being empty")]
-        Empty
+        Empty,
     }
 
     #[derive(Debug, Error)]
@@ -34,21 +43,19 @@ pub mod error {
         #[error("missing separator from prefix")]
         MissingPrefixSeparator,
         #[error("missing final CRLF sequence in message")]
-        MissingCrlf
-    }
-
-    #[derive(Debug, Error)]
-    pub enum IrcMessageParseError {
-        #[error("parsing the raw components of message returned an error: {0}")]
-        RawParsingError(#[from] RawIrcMessageParseError),
+        MissingCrlf,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use crate::irc_message::{raw::RawIrcMessage, command::IrcCommand, tags::{RawTag, RawIrcTags, OwnedTag}, owned::OwnedIrcMessage, prefix::OwnedPrefix};
+    use crate::irc_message::{
+        builder::MessageBuilder,
+        command::IrcCommand,
+        message::IrcMessage,
+        prefix::OwnedPrefix,
+        tags::{OwnedTag, RawTag},
+    };
 
     use super::{error::IrcMessageParseError, prefix::RawPrefix};
 
@@ -56,31 +63,25 @@ mod tests {
     fn raw_message_parsing() {
         const TEST_STR: &str = "@vip=1 :guh PRIVMSG #a :hi there\r\n";
 
-        let parsed = RawIrcMessage::try_from(TEST_STR).unwrap();
+        let parsed: IrcMessage = TEST_STR.parse().unwrap();
 
-        let correct = RawIrcMessage {
-            raw: Arc::from(TEST_STR),
-            tags: Some(RawIrcTags {
-                tags: vec![(RawTag::Vip, 5..6)],
-            }),
-            prefix: Some(RawPrefix::OnlyHostname { host: 8..11 }),
-            command: IrcCommand::PrivMsg,
-            params: vec![
-                20..22,
-                23..32
-            ],
-        };
-
-        assert_eq!(correct, parsed)
+        assert_eq!(parsed.get_command(), IrcCommand::PrivMsg);
+        assert_eq!(parsed.get_tag(OwnedTag::Vip).unwrap(), "1");
+        assert_eq!(parsed.get_param(0).unwrap(), "#a");
+        assert_eq!(parsed.get_param(1).unwrap(), ":hi there");
+        assert_eq!(parsed.get_host().unwrap(), "guh");
     }
 
-    static SHIT_TON: &'static str = include_str!("../../../logs/logs.txt");
+    static SHIT_TON: &str = include_str!("../../../logs/logs.txt");
 
     #[test]
     fn test_a_shit_ton() -> Result<(), IrcMessageParseError> {
         for msg in SHIT_TON.lines() {
-            let parsed = RawIrcMessage::try_from(msg);
-            assert!(parsed.is_ok(), "failed parsing the following message:\n{msg}")
+            let parsed: Result<IrcMessage, _> = msg.parse();
+            assert!(
+                parsed.is_ok(),
+                "failed parsing the following message:\n{msg}"
+            )
         }
         Ok(())
     }
@@ -105,9 +106,7 @@ mod tests {
 
         let host_prefix = ":irc.juliapixel.com FOOBAR";
         let raw_host_prefix = RawPrefix::parse(host_prefix, 1, 19).unwrap();
-        let right_host_prefix = RawPrefix::OnlyHostname {
-            host: 1..19
-        };
+        let right_host_prefix = RawPrefix::OnlyHostname { host: 1..19 };
 
         assert_eq!(raw_host_prefix, right_host_prefix)
     }
@@ -116,68 +115,46 @@ mod tests {
     fn raw_message_display() {
         const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi";
 
-        let parsed = RawIrcMessage::try_from(TEST_MESSAGE).unwrap();
+        let parsed: IrcMessage = TEST_MESSAGE.parse().unwrap();
 
         assert_eq!(parsed.to_string(), TEST_MESSAGE);
-    }
-
-    #[test]
-    fn owned_message_display() {
-        const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi hello there!\r\n";
-
-        let owned = OwnedIrcMessage {
-            tags: Some(vec![
-                (OwnedTag::Unknown(String::from("tag1")), String::from("val1")),
-                (OwnedTag::Unknown(String::from("tag2")), String::from("val2")),
-                (OwnedTag::Unknown(String::from("tag3")), String::from("val3")),
-            ]),
-            prefix: Some(
-                OwnedPrefix::Full {
-                    nickname: String::from("juliapixel"),
-                    username: String::from("julia"),
-                    host: String::from("juliapixel.com")
-                }
-            ),
-            command: IrcCommand::PrivMsg,
-            params: vec![
-                String::from("#juliapixel"),
-                String::from(":hi hello there!")
-            ],
-        };
-
-        assert_eq!(owned.to_string(), TEST_MESSAGE);
     }
 
     #[cfg(all(feature = "serde", feature = "unstable"))]
     #[test]
     fn roundtrip_deserialization() {
         const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi hello there!\r\n";
-        let parsed = RawIrcMessage::try_from(TEST_MESSAGE).unwrap();
+        let parsed: IrcMessage = TEST_MESSAGE.parse().unwrap();
 
-        let owned = OwnedIrcMessage {
-            tags: Some(vec![
-                (OwnedTag::Unknown("tag1".into()), "val1".into()),
-                (OwnedTag::Unknown("tag2".into()), "val2".into()),
-                (OwnedTag::Unknown("tag3".into()), "val3".into())
-            ]),
-            prefix: Some(
-                OwnedPrefix::Full {
-                    nickname: "juliapixel".into(),
-                    username: "julia".into(),
-                    host: "juliapixel.com".into()
-                }
-            ),
-            command: IrcCommand::PrivMsg,
-            params: vec![
-                "#juliapixel".into(),
-                ":hi hello there!".into()
-            ],
-        };
+        let owned = MessageBuilder::new(IrcCommand::PrivMsg)
+            .add_tag(OwnedTag::Unknown("tag1".into()), "val1")
+            .add_tag(OwnedTag::Unknown("tag2".into()), "val2")
+            .add_tag(OwnedTag::Unknown("tag3".into()), "val3")
+            .prefix(OwnedPrefix::Full {
+                nickname: "juliapixel".into(),
+                username: "julia".into(),
+                host: "juliapixel.com".into(),
+            })
+            .add_param("#juliapixel")
+            .add_param(":hi hello there!");
 
         let json_parsed = serde_json::to_string(&parsed).unwrap();
-        assert_eq!(json_parsed, serde_json::to_string(&owned).unwrap(), "the OwnedIrcMessage and RawIrcMessage serde::Serialize implementations don't match");
+        assert_eq!(
+            json_parsed,
+            serde_json::to_string(&owned).unwrap(),
+            "the OwnedIrcMessage and IrcMessage serde::Serialize implementations don't match"
+        );
 
-        let deserialized_owned: OwnedIrcMessage = serde_json::from_str(&json_parsed).unwrap();
-        assert_eq!(deserialized_owned, owned, "an OwnedIrcMessage could not be deserialized from a serialized RawIrcMessage")
+        let deserialized_owned: MessageBuilder =
+            serde_json::from_str(&json_parsed).expect(&json_parsed);
+        assert_eq!(
+            deserialized_owned, owned,
+            "an OwnedIrcMessage could not be deserialized from a serialized IrcMessage"
+        );
+
+        assert_eq!(
+            serde_json::to_string(&deserialized_owned).unwrap(),
+            json_parsed
+        )
     }
 }
