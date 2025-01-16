@@ -98,7 +98,7 @@ async fn part(cx: CommandContext<BotCommand>) {
             cx.bot_tx
                 .send(BotCommand::SendMessage {
                     channel_login: source_channel,
-                    message: format!("parting {chan}"),
+                    message: format!("parting @{chan}"),
                     reply_id: None,
                 })
                 .await
