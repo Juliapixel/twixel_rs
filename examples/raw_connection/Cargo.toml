@@ -1,0 +1,13 @@
+[package]
+name = "raw_connection"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+twixel_core = { path = "../../twixel_core", features = ["serde", "chrono", "rustls", "unstable"] }
+env_logger = { version = "0.10" }
+serde_json ={ version = "1.0" }
+futures-util = "0.3.31"

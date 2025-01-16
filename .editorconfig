@@ -1,0 +1,12 @@
+root = true
+
+[*.{rs,toml}]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+indent_style = space
+indent_size = 4
+
+# make sure the logs end in the expected EOL sequence for the IRC specification
+[logs.txt]
+end_of_line = crlf
