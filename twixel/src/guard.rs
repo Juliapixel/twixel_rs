@@ -1,4 +1,4 @@
-use twixel_core::{IrcCommand, IrcMessage, irc_message::tags::OwnedTag, user::ChannelInfo};
+use twixel_core::{irc_message::tags::OwnedTag, user::ChannelInfo, IrcCommand, IrcMessage};
 
 pub struct GuardContext<'a> {
     channel_info: &'a ChannelInfo,

@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use futures::StreamExt;
 use owo_colors::OwoColorize;
 use twixel_core::{
-    Auth, ConnectionPool, IrcCommand, IrcMessage, MessageBuilder, irc_message::tags::OwnedTag,
+    irc_message::tags::OwnedTag, Auth, ConnectionPool, IrcCommand, IrcMessage, MessageBuilder,
 };
 
 use crate::command::{Command, CommandContext};
@@ -83,10 +83,10 @@ impl Bot {
     pub async fn new(username: String, token: String) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(CMD_CHANNEL_SIZE);
         Self {
-            conn_pool: ConnectionPool::new(core::iter::empty::<String>(), Auth::OAuth {
-                username,
-                token,
-            })
+            conn_pool: ConnectionPool::new(
+                core::iter::empty::<String>(),
+                Auth::OAuth { username, token },
+            )
             .await
             .unwrap(),
             cmd_rx: rx,
