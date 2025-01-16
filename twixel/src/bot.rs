@@ -48,10 +48,7 @@ impl Bot {
         }
     }
 
-    pub async fn add_channels(
-        mut self,
-        channels: impl IntoIterator<Item = &str>,
-    ) -> Self {
+    pub async fn add_channels(mut self, channels: impl IntoIterator<Item = &str>) -> Self {
         for i in channels {
             self.conn_pool.join_channel(i).await.unwrap();
         }
@@ -141,17 +138,17 @@ impl Bot {
                             ))
                             .unwrap();
                         continue;
-                    },
+                    }
                     IrcCommand::AuthSuccessful => {
                         log::info!("auth successful");
                         continue;
-                    },
+                    }
                     IrcCommand::Reconnect => {
                         cx.bot_tx
                             .blocking_send(BotCommand::Reconnect(cx.connection_idx))
                             .unwrap();
                         continue;
-                    },
+                    }
                     IrcCommand::PrivMsg => (),
                     _ => {
                         log::error!("untreated message kind: {:?}", cx.msg.raw())

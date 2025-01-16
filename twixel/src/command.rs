@@ -28,23 +28,21 @@ pub trait CommandHandler {
 }
 
 pub fn wrap_fn<F, Fut>(func: F) -> impl CommandHandler
-    where
-        F: Fn(CommandContext<BotCommand>) -> Fut,
-        Fut: Future<Output = ()> + Send + Sync + 'static
+where
+    F: Fn(CommandContext<BotCommand>) -> Fut,
+    Fut: Future<Output = ()> + Send + Sync + 'static,
 {
-    WrappedHandler {
-        handler: func
-    }
+    WrappedHandler { handler: func }
 }
 
 struct WrappedHandler<H> {
-    handler: H
+    handler: H,
 }
 
 impl<H, Fut> CommandHandler for WrappedHandler<H>
-    where
-        H: Fn(CommandContext<BotCommand>) -> Fut,
-        Fut: Future<Output = ()> + Send + Sync + 'static
+where
+    H: Fn(CommandContext<BotCommand>) -> Fut,
+    Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     fn handle(
         &self,
@@ -54,13 +52,15 @@ impl<H, Fut> CommandHandler for WrappedHandler<H>
     }
 }
 
-
 pub struct StaticMessageHandler {
-    pub msg: String
+    pub msg: String,
 }
 
 impl CommandHandler for StaticMessageHandler {
-    fn handle(&self, cx: CommandContext<BotCommand>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
+    fn handle(
+        &self,
+        cx: CommandContext<BotCommand>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
         let msg = self.msg.clone();
         Box::pin(async move {
             cx.bot_tx
@@ -74,7 +74,6 @@ impl CommandHandler for StaticMessageHandler {
         })
     }
 }
-
 
 pub struct CommandGuard {
     names: Vec<String>,
@@ -128,10 +127,7 @@ impl Command {
     ) -> Self {
         Self {
             handler: Box::new(handler),
-            guard: Box::new(CommandGuard::new(
-                names,
-                prefix.into(),
-            )),
+            guard: Box::new(CommandGuard::new(names, prefix.into())),
         }
     }
 
@@ -166,7 +162,6 @@ impl CommandBuilder<CommandGuard> {
 }
 
 impl<G: Guard + Send + Sync + 'static> CommandBuilder<G> {
-
     pub fn build(self) -> Command {
         Command {
             guard: Box::new(self.guard),

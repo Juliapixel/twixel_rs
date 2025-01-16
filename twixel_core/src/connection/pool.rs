@@ -48,14 +48,17 @@ impl ConnectionPool {
     }
 
     pub async fn part_channel(&mut self, channel_login: &str) -> Result<(), PoolError> {
-        match self.channels.remove(channel_login).flatten().and_then(|c| self.pool.get_mut(c)) {
+        match self
+            .channels
+            .remove(channel_login)
+            .flatten()
+            .and_then(|c| self.pool.get_mut(c))
+        {
             Some(conn) => {
                 conn.part(channel_login).await?;
                 Ok(())
-            },
-            None => {
-                Err(PoolError::ChannelNotFound(channel_login.into()))
-            },
+            }
+            None => Err(PoolError::ChannelNotFound(channel_login.into())),
         }
     }
 
