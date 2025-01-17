@@ -53,7 +53,7 @@ pub fn limit_str_at_graphemes(value: &str, limit: usize) -> &str {
 fn limiting() {
     // 5 bytes, 5 chars
     const ASCII: &str = "hello";
-    // 6 bytes, 5 chars
+    // 7 bytes, 5 chars
     const MIXED: &str = "helĺó";
     // 13 bytes, 4 chars
     const EMOJI: &str = "🧞‍♀️";
