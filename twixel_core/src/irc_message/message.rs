@@ -14,7 +14,7 @@ use super::{
     command::IrcCommand,
     error::IrcMessageParseError,
     iter::IrcMessageParseIter,
-    tags::{OwnedTag, RawTag, TagsIter},
+    tags::OwnedTag,
     ToIrcMessage,
 };
 

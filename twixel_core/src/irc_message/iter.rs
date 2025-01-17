@@ -1,6 +1,4 @@
-use std::iter::Map;
-
-use memchr::{memchr, Memchr};
+use memchr::memchr;
 
 use crate::IrcMessage;
 
