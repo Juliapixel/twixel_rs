@@ -8,7 +8,7 @@ use twixel_core::{
 
 use crate::{
     command::{Command, CommandContext},
-    guard::GuardContext,
+    guard::GuardContext, util::limit_str_at_graphemes,
 };
 
 pub struct Bot {
@@ -94,7 +94,7 @@ impl Bot {
                                 log::debug!("sending {} to {}", &message, &channel_login);
                                 if let Some(idx) = self.conn_pool.get_conn_idx(&channel_login) {
                                     self.conn_pool.send_to_connection(
-                                        MessageBuilder::privmsg(&channel_login, &message)
+                                        MessageBuilder::privmsg(&channel_login, limit_str_at_graphemes(&message, 500))
                                             .add_tag(OwnedTag::ReplyParentMsgId, reply_id.unwrap_or_default()),
                                         idx
                                     ).await.unwrap();
