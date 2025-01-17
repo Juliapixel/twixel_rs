@@ -1,7 +1,7 @@
 use bot::{Bot, BotCommand};
 use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use guard::UserGuard;
 
 mod bot;
@@ -45,6 +45,13 @@ async fn main() -> Result<(), anyhow::Error> {
             msg: "idk bro figure it out".into(),
         },
         vec!["help".into(), "commands".into()],
+        "%",
+    ))
+    .add_command(Command::new(
+        StaticMessageHandler {
+            msg: "pong! :3c".into(),
+        },
+        vec!["ping".into()],
         "%",
     ))
     .add_command(Command::new(wrap_fn(cat_fact), vec!["catfact".into()], "%"));
