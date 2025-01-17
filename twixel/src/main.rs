@@ -113,15 +113,15 @@ async fn part(cx: CommandContext<BotCommand>) {
         }
         None => {
             cx.bot_tx
-                .send(BotCommand::PartChannel(source_channel.clone()))
-                .await
-                .unwrap();
-            cx.bot_tx
                 .send(BotCommand::SendMessage {
-                    channel_login: source_channel,
+                    channel_login: source_channel.clone(),
                     message: "byeeee :333".to_string(),
                     reply_id: None,
                 })
+                .await
+                .unwrap();
+            cx.bot_tx
+                .send(BotCommand::PartChannel(source_channel.clone()))
                 .await
                 .unwrap();
         }
