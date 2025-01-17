@@ -1,13 +1,13 @@
 use std::task::Poll;
 
 use error::ConnectionError;
-use futures_util::{SinkExt, Stream, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use hashbrown::HashSet;
-use log::{debug, trace, warn};
+use log::{debug, warn};
 use smallvec::SmallVec;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    tungstenite::{error::ProtocolError, Error as TungsteniteError, Message as WsMessage},
+    tungstenite::Message as WsMessage,
     MaybeTlsStream, WebSocketStream,
 };
 
@@ -20,7 +20,7 @@ pub use pool::ConnectionPool;
 use crate::{
     auth::Auth,
     irc_message::{
-        builder::MessageBuilder, command::IrcCommand, error::IrcMessageParseError,
+        builder::MessageBuilder, command::IrcCommand,
         message::IrcMessage, ToIrcMessage,
     },
 };

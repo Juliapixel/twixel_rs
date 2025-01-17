@@ -7,7 +7,6 @@ use smallvec::SmallVec;
 use crate::{
     auth::Auth,
     irc_message::{builder::MessageBuilder, message::IrcMessage, ToIrcMessage},
-    user::ChannelInfo,
 };
 
 use super::{error::PoolError, Connection};
@@ -35,7 +34,7 @@ impl ConnectionPool {
             let mut conn = Connection::new(window, auth.clone());
             conn.start().await?;
             pool.push(conn);
-            for channel in window.into_iter() {
+            for channel in window.iter() {
                 channel_list.insert(channel.to_owned(), Some(i));
             }
         }
