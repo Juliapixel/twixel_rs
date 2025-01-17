@@ -133,7 +133,7 @@ impl FromStr for IrcMessage<'static> {
     type Err = IrcMessageParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(Cow::Owned(s.to_owned()))
+        Self::try_from(s.to_owned())
     }
 }
 
@@ -210,6 +210,22 @@ impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
             command,
             params,
         })
+    }
+}
+
+impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
+    type Error = IrcMessageParseError;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Borrowed(value))
+    }
+}
+
+impl TryFrom<String> for IrcMessage<'static> {
+    type Error = IrcMessageParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Owned(value))
     }
 }
 
