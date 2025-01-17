@@ -132,10 +132,11 @@ impl Bot {
                 match cx.msg.get_command() {
                     IrcCommand::Ping => {
                         cx.bot_tx
-                            .blocking_send(BotCommand::SendRawIrc(
+                            .send(BotCommand::SendRawIrc(
                                 MessageBuilder::pong(cx.msg.get_param(0).unwrap()).to_owned(),
                                 cx.connection_idx,
                             ))
+                            .await
                             .unwrap();
                         continue;
                     }
@@ -145,7 +146,8 @@ impl Bot {
                     }
                     IrcCommand::Reconnect => {
                         cx.bot_tx
-                            .blocking_send(BotCommand::Reconnect(cx.connection_idx))
+                            .send(BotCommand::Reconnect(cx.connection_idx))
+                            .await
                             .unwrap();
                         continue;
                     }
@@ -161,8 +163,13 @@ impl Bot {
                 cmd.handle(cx).await;
             }
         });
-        let (h, r) = tokio::join!(cmd_handler, receiver);
-        h.unwrap();
-        r.unwrap();
+        tokio::select! {
+            Err(e) = cmd_handler => {
+                log::error!("{e}")
+            },
+            Err(e) = receiver => {
+                log::error!("{e}")
+            },
+        };
     }
 }
