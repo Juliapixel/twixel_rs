@@ -6,10 +6,7 @@ use hashbrown::HashSet;
 use log::{debug, warn};
 use smallvec::SmallVec;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    tungstenite::Message as WsMessage,
-    MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream};
 
 pub mod pool;
 // #[cfg(feature = "unstable")]
@@ -20,8 +17,7 @@ pub use pool::ConnectionPool;
 use crate::{
     auth::Auth,
     irc_message::{
-        builder::MessageBuilder, command::IrcCommand,
-        message::IrcMessage, ToIrcMessage,
+        builder::MessageBuilder, command::IrcCommand, message::IrcMessage, ToIrcMessage,
     },
 };
 
