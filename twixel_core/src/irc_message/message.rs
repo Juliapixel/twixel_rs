@@ -11,10 +11,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use crate::irc_message::{error::IrcMessageStructureError, prefix::RawPrefix, tags::RawIrcTags};
 
 use super::{
-    command::IrcCommand,
-    error::IrcMessageParseError,
-    iter::IrcMessageParseIter,
-    tags::OwnedTag,
+    command::IrcCommand, error::IrcMessageParseError, iter::IrcMessageParseIter, tags::OwnedTag,
     ToIrcMessage,
 };
 

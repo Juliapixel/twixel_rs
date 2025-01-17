@@ -22,7 +22,7 @@ pub enum MessageBuilderError {
     #[error("cannot create a builder from {0}")]
     WrongMessageType(IrcCommand),
     #[error("could not create builder from message due to a missing tag")]
-    MissingTag
+    MissingTag,
 }
 
 impl std::fmt::Debug for MessageBuilder<'_> {
@@ -57,15 +57,15 @@ impl<'a> MessageBuilder<'a> {
         if msg.get_command() != IrcCommand::PrivMsg {
             return Err(MessageBuilderError::WrongMessageType(msg.get_command()));
         }
-        let Some(parent_id) = msg.get_tag(OwnedTag::ReplyThreadParentMsgId).or(msg.get_tag(OwnedTag::Id)) else {
-            return Err(MessageBuilderError::MissingTag)
+        let Some(parent_id) = msg
+            .get_tag(OwnedTag::ReplyThreadParentMsgId)
+            .or(msg.get_tag(OwnedTag::Id))
+        else {
+            return Err(MessageBuilderError::MissingTag);
         };
         Ok(
-            Self::privmsg(
-                msg.get_param(0).unwrap().split_at(1).1,
-                message
-            )
-            .add_tag(OwnedTag::ReplyParentMsgId, parent_id)
+            Self::privmsg(msg.get_param(0).unwrap().split_at(1).1, message)
+                .add_tag(OwnedTag::ReplyParentMsgId, parent_id),
         )
     }
 
