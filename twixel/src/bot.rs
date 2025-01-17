@@ -152,6 +152,7 @@ impl Bot {
                         continue;
                     }
                     IrcCommand::PrivMsg => (),
+                    IrcCommand::Useless => continue,
                     _ => {
                         log::error!("untreated message kind: {:?}", cx.msg.raw())
                     }
