@@ -49,7 +49,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     // ryanpotat
                     .or(UserGuard::allow("457260003"))
                     // joeiox
-                    .or(UserGuard::allow("275204234"))
+                    .or(UserGuard::allow("275204234")),
             )
             .build(),
     )
@@ -75,8 +75,13 @@ async fn main() -> Result<(), anyhow::Error> {
 
 async fn eval(cx: CommandContext<BotCommand>) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
-    let Some(code) = cx.msg.get_param(1).and_then(|s| s.split_once(' ').map(|s| s.1)).map(|s| s.to_string()) else {
-        return
+    let Some(code) = cx
+        .msg
+        .get_param(1)
+        .and_then(|s| s.split_once(' ').map(|s| s.1))
+        .map(|s| s.to_string())
+    else {
+        return;
     };
 
     let out = tokio::task::spawn_blocking(move || {
@@ -93,12 +98,16 @@ async fn eval(cx: CommandContext<BotCommand>) {
                         ctx.catch()
                             .into_exception()
                             .map(|v| {
-                                let name = v.get_prototype()
+                                let name = v
+                                    .get_prototype()
                                     .and_then(|prot| prot.get::<_, Object>("constructor").ok())
                                     .and_then(|cons| cons.get::<_, Coerced<String>>("name").ok())
                                     .map(|c| c.0)
                                     .unwrap();
-                                format!("[{name}] thrown: {:?}", v.message().as_deref().unwrap_or("{no message set}"))
+                                format!(
+                                    "[{name}] thrown: {:?}",
+                                    v.message().as_deref().unwrap_or("{no message set}")
+                                )
                             })
                             .unwrap_or_else(|| e.to_string())
                     } else {
@@ -106,7 +115,9 @@ async fn eval(cx: CommandContext<BotCommand>) {
                     }
                 })
         })
-    }).await.unwrap_or_else(|e| e.to_string());
+    })
+    .await
+    .unwrap_or_else(|e| e.to_string());
 
     cx.bot_tx
         .send(BotCommand::SendMessage {

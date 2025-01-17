@@ -8,7 +8,8 @@ use twixel_core::{
 
 use crate::{
     command::{Command, CommandContext},
-    guard::GuardContext, util::limit_str_at_graphemes,
+    guard::GuardContext,
+    util::limit_str_at_graphemes,
 };
 
 pub struct Bot {

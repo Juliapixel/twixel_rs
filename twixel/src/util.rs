@@ -7,7 +7,7 @@ pub fn limit_str(value: &str, limit: usize) -> &str {
     let boundary = value
         .char_indices()
         .map(|(idx, c)| idx + c.len_utf8())
-        .take_while(|end| *end <= limit )
+        .take_while(|end| *end <= limit)
         .last()
         .unwrap_or(0);
     if boundary == value.len() {
