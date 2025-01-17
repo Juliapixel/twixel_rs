@@ -4,6 +4,7 @@ use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHan
 use futures::TryFutureExt;
 use guard::{Guard, UserGuard};
 use rquickjs::{Coerced, Object};
+use unicode_segmentation::UnicodeSegmentation;
 
 mod bot;
 mod cli;
@@ -43,13 +44,24 @@ async fn main() -> Result<(), anyhow::Error> {
             .build(),
     )
     .add_command(
-        CommandBuilder::new(wrap_fn(eval), vec!["eval".into(), "js".into()], "%")
+        CommandBuilder::new(
+            wrap_fn(eval),
+            vec!["eval".into(), "js".into()],
+            "%"
+        )
             .and(
                 UserGuard::allow(JULIA_ID)
                     // ryanpotat
                     .or(UserGuard::allow("457260003"))
                     // joeiox
                     .or(UserGuard::allow("275204234")),
+            )
+            .build(),
+    )
+    .add_command(
+        CommandBuilder::new(wrap_fn(strdbg), vec!["strdbg".into()], "%")
+            .and(
+                UserGuard::allow(JULIA_ID)
             )
             .build(),
     )
@@ -71,6 +83,23 @@ async fn main() -> Result<(), anyhow::Error> {
 
     bot.run().await;
     Ok(())
+}
+
+async fn strdbg(cx: CommandContext<BotCommand>) {
+    let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
+    let Some(msg) = cx.msg
+        .get_param(1)
+        .and_then(|m| m.split_once(' '))
+        .map(|(_, m)| m)
+    else {
+        return;
+    };
+
+    cx.bot_tx.send(BotCommand::SendMessage {
+        channel_login: source_channel,
+        message: format!("{} graphemes, {} chars, {} bytes, {:?}", msg.graphemes(true).count(), msg.chars().count(), msg.len(), msg),
+        reply_id: None
+    }).await.unwrap()
 }
 
 async fn eval(cx: CommandContext<BotCommand>) {
