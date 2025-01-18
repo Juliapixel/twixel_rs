@@ -24,11 +24,6 @@ tokio = { version = "1.43.0", features = ["full"] }
 twixel_core = { path = "../twixel_core", features = ["rustls", "chrono"] }
 unicode-segmentation = "1.12.0"
 
-[patch.crates-io]
-rquickjs-sys = { git = "https://github.com/DelSkayn/rquickjs.git" }
-rquickjs-core = { git = "https://github.com/DelSkayn/rquickjs.git" }
-rquickjs = { git = "https://github.com/DelSkayn/rquickjs.git" }
-
 [dependencies.reqwest]
 version = "0.12"
 default-features = false
