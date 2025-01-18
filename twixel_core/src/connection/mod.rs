@@ -315,38 +315,3 @@ impl<'a> futures_util::Sink<MessageBuilder<'a>> for Connection {
             .map_err(Into::into)
     }
 }
-
-// impl Stream for Connection {
-//     type Item = Result<IrcMessage, ConnectionError>;
-
-//     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
-//         match self.socket.unwrap().poll_next_unpin(cx) {
-//             Poll::Ready(None) => {
-//                 Poll::Ready(None)
-//             },
-//             Poll::Ready(Some(Err(e))) => {
-//                 Poll::Ready(Some(Err(e.into())))
-//             }
-//             Poll::Ready(Some(Ok(Message::Text(txt)))) => {
-//                 let mut received_messages = SmallVec::new();
-//                 let mut pos = 0;
-//                 for i in memchr::memchr_iter(b'\n', txt.as_bytes()) {
-//                     let parsed = IrcMessage::try_from(&txt[pos..=i])?;
-//                     if parsed.command == IrcCommand::Ping {
-//                         self.send(OwnedIrcMessage::pong(parsed.get_param(0).unwrap().into()))
-//                             .await?;
-//                     }
-//                     trace!("received: {:?}", parsed);
-//                     received_messages.push(parsed);
-//                     pos = i + 1;
-//                 }
-//                 Poll::Ready(Some(Ok(received_messages[0])))
-//             },
-//             Poll::Ready(Some(Ok(_))) => {
-//                 Poll::Ready(Some(Err(ConnectionError::NotStarted)))
-//             }
-//             Poll::Pending => Poll::Pending
-//         }
-//     }
-
-// }
