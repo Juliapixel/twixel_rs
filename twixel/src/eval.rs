@@ -53,7 +53,6 @@ fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext<BotCommand>> {
             .block_on(async move {
                 let local_set = LocalSet::new();
 
-
                 local_set.spawn_local(async move {
                     loop {
                         let cx = rx.recv().await.unwrap();
@@ -78,12 +77,18 @@ fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext<BotCommand>> {
 
                             log::debug!("received js task");
 
-                            context.with(|ctx|{
-                                let cloned_ctx = ctx.clone();
-                                ctx.spawn(async move {
-                                    let _ = tokio::time::timeout(MAX_EVAL_DURATION, eval(cloned_ctx, cx)).await;
-                                });
-                            }).await;
+                            context
+                                .with(|ctx| {
+                                    let cloned_ctx = ctx.clone();
+                                    ctx.spawn(async move {
+                                        let _ = tokio::time::timeout(
+                                            MAX_EVAL_DURATION,
+                                            eval(cloned_ctx, cx),
+                                        )
+                                        .await;
+                                    });
+                                })
+                                .await;
                         });
                     }
                 });
@@ -132,20 +137,15 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
             | Type::BigInt
             | Type::Constructor
             | Type::Symbol
-            | Type::Uninitialized => {
-                Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap()
-            }
-            Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => {
-                ctx.json_stringify(val)
-                    .and_then(|i| i.map(|s| s.to_string()).unwrap())
-                    .expect("aaaa")
+            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap(),
+            Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => ctx
+                .json_stringify(val)
+                .and_then(|i| i.map(|s| s.to_string()).unwrap())
+                .expect("aaaa"),
+            Type::Promise => match val.into_promise().unwrap().into_future().await {
+                Ok(v) => repl_print_value(v).await,
+                Err(e) => rquickjs_err_to_pretty(e, &ctx),
             },
-            | Type::Promise => {
-                match val.into_promise().unwrap().into_future().await {
-                    Ok(v) => repl_print_value(v).await,
-                    Err(e) => rquickjs_err_to_pretty(e, &ctx)
-                }
-            }
         }
     })
 }
