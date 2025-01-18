@@ -4,7 +4,7 @@ use super::{util::msg_from_param, ClearChat};
 
 pub enum TimeoutDuration {
     Permanent,
-    Temporary(std::time::Duration)
+    Temporary(std::time::Duration),
 }
 
 impl ClearChat<'_> {
@@ -22,7 +22,9 @@ impl ClearChat<'_> {
 
     pub fn duration(&self) -> TimeoutDuration {
         match self.get_tag(OwnedTag::BanDuration) {
-            Some(dur) => TimeoutDuration::Temporary(std::time::Duration::from_secs(dur.parse().unwrap())),
+            Some(dur) => {
+                TimeoutDuration::Temporary(std::time::Duration::from_secs(dur.parse().unwrap()))
+            }
             None => TimeoutDuration::Permanent,
         }
     }

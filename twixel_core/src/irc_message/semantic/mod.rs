@@ -1,21 +1,23 @@
 //! semantic wrappers around each kind of IRC message command, most of these don't
 //! even do anything useful, but are there for completeness' sake
 
-mod privmsg;
 mod clearchat;
 mod clearmsg;
+mod privmsg;
 mod util;
 
 use crate::IrcMessage;
 
 pub trait SemanticIrcMessage<'a>: Sized {
     fn to_inner(self) -> IrcMessage<'a>
-        where Self: 'a;
+    where
+        Self: 'a;
 
     fn inner(&self) -> &IrcMessage<'a>;
 
     fn from_message(msg: IrcMessage<'a>) -> Option<Self>
-        where Self: 'a;
+    where
+        Self: 'a;
 }
 
 macro_rules! impl_semantic {

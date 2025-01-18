@@ -5,7 +5,6 @@ use super::{util::msg_from_param, PrivMsg};
 impl PrivMsg<'_> {
     // TODO: treat repeat message avoiders
     pub fn message_text(&self) -> &str {
-
         let msg_param = self
             .inner
             .get_param(1)
@@ -26,7 +25,8 @@ impl PrivMsg<'_> {
     }
 
     pub fn reply_to(&self, msg: &str) -> MessageBuilder<'_> {
-        let reply_id = self.get_tag(OwnedTag::ReplyThreadParentMsgId)
+        let reply_id = self
+            .get_tag(OwnedTag::ReplyThreadParentMsgId)
             .or_else(|| self.get_tag(OwnedTag::Id));
 
         let builder = MessageBuilder::privmsg(self.channel_login(), msg);

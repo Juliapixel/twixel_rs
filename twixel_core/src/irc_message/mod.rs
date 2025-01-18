@@ -6,9 +6,9 @@ pub mod prefix;
 pub mod semantic;
 pub mod tags;
 
+pub use command::IrcCommand;
 pub use message::IrcMessage;
 pub use semantic::*;
-pub use command::IrcCommand;
 
 pub trait ToIrcMessage {
     fn to_message(self) -> String;
