@@ -1,5 +1,3 @@
-use std::ops::AddAssign;
-
 use unicode_segmentation::UnicodeSegmentation;
 
 /// returns a &str that is at most `limit` bytes long
