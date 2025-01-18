@@ -3,12 +3,12 @@ use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
 use futures::TryFutureExt;
 use guard::{Guard, UserGuard};
-use rquickjs::{Coerced, Object};
 use unicode_segmentation::UnicodeSegmentation;
 
 mod bot;
 mod cli;
 mod command;
+mod eval;
 mod guard;
 mod util;
 
@@ -45,7 +45,7 @@ async fn main() -> Result<(), anyhow::Error> {
     )
     .add_command(
         CommandBuilder::new(
-            wrap_fn(eval),
+            eval::EvalHandler::new(),
             vec!["eval".into(), "js".into()],
             "%"
         )
@@ -100,62 +100,6 @@ async fn strdbg(cx: CommandContext<BotCommand>) {
         message: format!("{} graphemes, {} chars, {} bytes, {:?}", msg.graphemes(true).count(), msg.chars().count(), msg.len(), msg),
         reply_id: None
     }).await.unwrap()
-}
-
-async fn eval(cx: CommandContext<BotCommand>) {
-    let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
-    let Some(code) = cx
-        .msg
-        .get_param(1)
-        .and_then(|s| s.split_once(' ').map(|s| s.1))
-        .map(|s| s.to_string())
-    else {
-        return;
-    };
-
-    let out = tokio::task::spawn_blocking(move || {
-        let rt = rquickjs::Runtime::new().unwrap();
-        rt.set_memory_limit(3_000_000);
-        let start_time = std::time::Instant::now();
-        rt.set_interrupt_handler(Some(Box::new(move || start_time.elapsed().as_secs() > 5)));
-        let ctx = rquickjs::Context::full(&rt).unwrap();
-        ctx.with(|ctx| -> String {
-            ctx.eval::<Coerced<String>, _>(code)
-                .map(|r| r.0)
-                .unwrap_or_else(|e| {
-                    if e.is_exception() {
-                        ctx.catch()
-                            .into_exception()
-                            .map(|v| {
-                                let name = v
-                                    .get_prototype()
-                                    .and_then(|prot| prot.get::<_, Object>("constructor").ok())
-                                    .and_then(|cons| cons.get::<_, Coerced<String>>("name").ok())
-                                    .map(|c| c.0)
-                                    .unwrap();
-                                format!(
-                                    "[{name}] thrown: {:?}",
-                                    v.message().as_deref().unwrap_or("{no message set}")
-                                )
-                            })
-                            .unwrap_or_else(|| e.to_string())
-                    } else {
-                        e.to_string()
-                    }
-                })
-        })
-    })
-    .await
-    .unwrap_or_else(|e| e.to_string());
-
-    cx.bot_tx
-        .send(BotCommand::SendMessage {
-            channel_login: source_channel,
-            message: out,
-            reply_id: None,
-        })
-        .await
-        .unwrap();
 }
 
 #[derive(serde::Deserialize)]

@@ -9,3 +9,8 @@ package = { edition = "2021" }
 [profile.release]
 lto = true
 opt-level = 3
+
+[patch.crates-io]
+rquickjs-sys = { git = "https://github.com/DelSkayn/rquickjs.git" }
+rquickjs-core = { git = "https://github.com/DelSkayn/rquickjs.git" }
+rquickjs = { git = "https://github.com/DelSkayn/rquickjs.git" }

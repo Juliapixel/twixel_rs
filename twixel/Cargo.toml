@@ -9,17 +9,25 @@ chrono = "0.4.39"
 clap = { version = "4.5.26", features = ["derive"] }
 dashmap = "6.1.0"
 dotenvy = "0.15.7"
+either = { version = "1.13.0", features = ["serde"] }
 env_logger = "0.11.6"
 futures = "0.3.31"
 log = "0.4.25"
 owo-colors = "4.1.0"
 parking_lot = "0.12.3"
-rquickjs = "0.8.1"
+rquickjs = { version = "0.8.1", features = ["either", "futures", "macro"]}
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.135"
+smart-default = "0.7.1"
+thiserror = "2.0.11"
 tokio = { version = "1.43.0", features = ["full"] }
 twixel_core = { path = "../twixel_core", features = ["rustls", "chrono"] }
 unicode-segmentation = "1.12.0"
+
+[patch.crates-io]
+rquickjs-sys = { git = "https://github.com/DelSkayn/rquickjs.git" }
+rquickjs-core = { git = "https://github.com/DelSkayn/rquickjs.git" }
+rquickjs = { git = "https://github.com/DelSkayn/rquickjs.git" }
 
 [dependencies.reqwest]
 version = "0.12"
