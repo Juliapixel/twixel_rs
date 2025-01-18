@@ -1,6 +1,7 @@
 use std::task::Poll;
 
-use futures_util::{future::select_all, FutureExt, Stream};
+use either::Either;
+use futures_util::{future::select_all, FutureExt, Sink, SinkExt, Stream};
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
@@ -147,6 +148,87 @@ impl Stream for ConnectionPool {
         {
             let received = received.map_err(Into::<PoolError>::into);
             Poll::Ready(Some(received.map(|r| (r, idx))))
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl<'a> Sink<(Either<usize, &str>, MessageBuilder<'a>)> for ConnectionPool {
+    type Error = PoolError;
+
+    fn poll_ready(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let mut readied = 0;
+        for i in self.pool.iter_mut() {
+            match futures_util::ready!(i.poll_ready_unpin(cx)) {
+                Ok(()) => readied += 1,
+                Err(e) => return Poll::Ready(Err(e.into())),
+            }
+        }
+        if readied == 0 {
+            Poll::Ready(Err(PoolError::NoConnections))
+        } else if readied == self.pool.len() {
+            Poll::Ready(Ok(()))
+        } else {
+            Poll::Pending
+        }
+    }
+
+    fn start_send(
+        mut self: std::pin::Pin<&mut Self>,
+        (target, msg): (Either<usize, &str>, MessageBuilder<'a>),
+    ) -> Result<(), Self::Error> {
+        let conn_idx = match target {
+            Either::Left(idx) => idx,
+            Either::Right(chan) => match self.get_conn_idx(chan) {
+                Some(idx) => idx,
+                None => return Err(PoolError::ChannelNotFound(chan.to_string())),
+            },
+        };
+        let Some(conn) = self.pool.get_mut(conn_idx) else {
+            return Err(PoolError::IndexOutOfBounds(conn_idx, self.pool.len()));
+        };
+        conn.start_send_unpin(msg).map_err(Into::into)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let mut flushed = 0;
+        for i in self.pool.iter_mut() {
+            match futures_util::ready!(i.poll_flush_unpin(cx)) {
+                Ok(()) => flushed += 1,
+                Err(e) => return Poll::Ready(Err(e.into())),
+            }
+        }
+        if flushed == 0 {
+            Poll::Ready(Err(PoolError::NoConnections))
+        } else if flushed == self.pool.len() {
+            Poll::Ready(Ok(()))
+        } else {
+            Poll::Pending
+        }
+    }
+
+    fn poll_close(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let mut closed = 0;
+        for i in self.pool.iter_mut() {
+            match futures_util::ready!(i.poll_close_unpin(cx)) {
+                Ok(()) => closed += 1,
+                Err(e) => return Poll::Ready(Err(e.into())),
+            }
+        }
+        if closed == 0 {
+            Poll::Ready(Err(PoolError::NoConnections))
+        } else if closed == self.pool.len() {
+            Poll::Ready(Ok(()))
         } else {
             Poll::Pending
         }
