@@ -1,5 +1,6 @@
-use std::sync::LazyLock;
+use std::{sync::LazyLock, time::Duration};
 
+use futures::future::LocalBoxFuture;
 use reqwest::header::{HeaderMap, ACCEPT, USER_AGENT};
 use rquickjs::{
     function::Async as AsyncJsClosure,
@@ -38,6 +39,8 @@ impl CommandHandler for EvalHandler {
     }
 }
 
+const MAX_EVAL_DURATION: Duration = Duration::from_secs(5);
+
 fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext<BotCommand>> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
 
@@ -50,31 +53,38 @@ fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext<BotCommand>> {
             .block_on(async move {
                 let local_set = LocalSet::new();
 
-                // local_set.spawn_local()
-                let rt = AsyncRuntime::new().unwrap();
-
-                rt.set_memory_limit(50_000_000).await;
-                let start_time = std::time::Instant::now();
-
-                rt.set_interrupt_handler(Some(Box::new(move || {
-                    start_time.elapsed().as_secs() > 5
-                })))
-                .await;
-
-                let context = AsyncContext::full(&rt).await.unwrap();
-
-                local_set.spawn_local(async move {
-                    log::debug!("js runtime being driven");
-                    rt.drive().await;
-                });
 
                 local_set.spawn_local(async move {
                     loop {
                         let cx = rx.recv().await.unwrap();
 
-                        log::debug!("received js task");
+                        tokio::task::spawn_local(async move {
+                            let rt = AsyncRuntime::new().unwrap();
 
-                        context.with(|ctx| ctx.spawn(eval(ctx.clone(), cx))).await;
+                            rt.set_memory_limit(50_000_000).await;
+                            let start_time = std::time::Instant::now();
+
+                            rt.set_interrupt_handler(Some(Box::new(move || {
+                                start_time.elapsed().as_secs() > 5
+                            })))
+                            .await;
+
+                            let context = AsyncContext::full(&rt).await.unwrap();
+
+                            tokio::task::spawn_local(async move {
+                                log::debug!("driving new quickjs runtime");
+                                rt.drive().await;
+                            });
+
+                            log::debug!("received js task");
+
+                            context.with(|ctx|{
+                                let cloned_ctx = ctx.clone();
+                                ctx.spawn(async move {
+                                    let _ = tokio::time::timeout(MAX_EVAL_DURATION, eval(cloned_ctx, cx)).await;
+                                });
+                            }).await;
+                        });
                     }
                 });
 
@@ -104,6 +114,40 @@ fn rquickjs_err_to_pretty(err: rquickjs::Error, ctx: &Ctx) -> String {
             )
         })
         .unwrap_or_else(|| err.to_string())
+}
+
+// #[async_recursion::async_recursion(?Send)]
+fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
+    Box::pin(async {
+        let ctx = val.ctx().clone();
+
+        match val.type_of() {
+            Type::Undefined
+            | Type::Null
+            | Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Function
+            | Type::BigInt
+            | Type::Constructor
+            | Type::Symbol
+            | Type::Uninitialized => {
+                Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap()
+            }
+            Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => {
+                ctx.json_stringify(val)
+                    .and_then(|i| i.map(|s| s.to_string()).unwrap())
+                    .expect("aaaa")
+            },
+            | Type::Promise => {
+                match val.into_promise().unwrap().into_future().await {
+                    Ok(v) => repl_print_value(v).await,
+                    Err(e) => rquickjs_err_to_pretty(e, &ctx)
+                }
+            }
+        }
+    })
 }
 
 async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
@@ -160,28 +204,8 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
         Ok(p) => {
             let val = p.into_future::<Value>().await;
 
-            match val {
-                Ok(val) => match val.type_of() {
-                    Type::Undefined
-                    | Type::Null
-                    | Type::Bool
-                    | Type::Int
-                    | Type::Float
-                    | Type::String
-                    | Type::Function
-                    | Type::BigInt
-                    | Type::Promise
-                    | Type::Constructor
-                    | Type::Symbol
-                    | Type::Uninitialized => {
-                        Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap()
-                    }
-                    Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => {
-                        ctx.json_stringify(val)
-                            .and_then(|i| i.map(|s| s.to_string()).unwrap())
-                            .expect("aaaa")
-                    }
-                },
+            match val.and_then(|val| val.as_object().unwrap().get::<_, Value>("value")) {
+                Ok(val) => repl_print_value(val).await,
                 Err(e) => rquickjs_err_to_pretty(e, &ctx),
             }
         }
