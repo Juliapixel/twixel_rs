@@ -24,8 +24,6 @@ async fn main() -> Result<(), anyhow::Error> {
         },
     ));
 
-    log::info!("twixel bot started");
-
     let bot = Bot::new(
         dotenvy::var("TWITCH_LOGIN").unwrap(),
         dotenvy::var("TWITCH_TOKEN").unwrap(),
@@ -47,22 +45,20 @@ async fn main() -> Result<(), anyhow::Error> {
         CommandBuilder::new(
             eval::EvalHandler::new(),
             vec!["eval".into(), "js".into()],
-            "%"
+            "%",
         )
-            .and(
-                UserGuard::allow(JULIA_ID)
-                    // ryanpotat
-                    .or(UserGuard::allow("457260003"))
-                    // joeiox
-                    .or(UserGuard::allow("275204234")),
-            )
-            .build(),
+        .and(
+            UserGuard::allow(JULIA_ID)
+                // ryanpotat
+                .or(UserGuard::allow("457260003"))
+                // joeiox
+                .or(UserGuard::allow("275204234")),
+        )
+        .build(),
     )
     .add_command(
         CommandBuilder::new(wrap_fn(strdbg), vec!["strdbg".into()], "%")
-            .and(
-                UserGuard::allow(JULIA_ID)
-            )
+            .and(UserGuard::allow(JULIA_ID))
             .build(),
     )
     .add_command(Command::new(
@@ -81,13 +77,16 @@ async fn main() -> Result<(), anyhow::Error> {
     ))
     .add_command(Command::new(wrap_fn(cat_fact), vec!["catfact".into()], "%"));
 
+    log::info!("twixel bot started");
+
     bot.run().await;
     Ok(())
 }
 
 async fn strdbg(cx: CommandContext<BotCommand>) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
-    let Some(msg) = cx.msg
+    let Some(msg) = cx
+        .msg
         .get_param(1)
         .and_then(|m| m.split_once(' '))
         .map(|(_, m)| m)
@@ -95,11 +94,20 @@ async fn strdbg(cx: CommandContext<BotCommand>) {
         return;
     };
 
-    cx.bot_tx.send(BotCommand::SendMessage {
-        channel_login: source_channel,
-        message: format!("{} graphemes, {} chars, {} bytes, {:?}", msg.graphemes(true).count(), msg.chars().count(), msg.len(), msg),
-        reply_id: None
-    }).await.unwrap()
+    cx.bot_tx
+        .send(BotCommand::SendMessage {
+            channel_login: source_channel,
+            message: format!(
+                "{} graphemes, {} chars, {} bytes, {:?}",
+                msg.graphemes(true).count(),
+                msg.chars().count(),
+                msg.len(),
+                msg
+            ),
+            reply_id: None,
+        })
+        .await
+        .unwrap()
 }
 
 #[derive(serde::Deserialize)]
