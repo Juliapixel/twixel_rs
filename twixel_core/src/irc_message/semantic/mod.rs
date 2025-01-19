@@ -4,6 +4,7 @@
 mod clearchat;
 mod clearmsg;
 mod privmsg;
+mod userstate;
 mod util;
 
 use crate::IrcMessage;

@@ -103,8 +103,7 @@ impl ChannelInfo {
     }
 
     pub fn is_privileged(&self) -> bool {
-        self.channel_roles.contains(ChannelRoles::is_moderator)
-            || self.channel_roles.contains(ChannelRoles::is_vip)
+        self.channel_roles.is_privileged()
     }
 
     /// returns ``true`` if you cannot send message
@@ -136,9 +135,22 @@ bitflags::bitflags! {
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     #[derive(Clone, Copy, Default, Debug)]
     pub struct ChannelRoles: u8 {
-        const is_moderator = 1;
-        const is_vip = 1 << 1;
-        const is_sub = 1 << 2;
+        const Moderator = 1;
+        const Vip = 1 << 1;
+        const Subscriber = 1 << 2;
+        const Broadcaster = 1 << 3;
+    }
+}
+
+impl ChannelRoles {
+    const PRIVILEGED_MASK: ChannelRoles = ChannelRoles::empty()
+        .union(ChannelRoles::Moderator)
+        .union(ChannelRoles::Vip)
+        .union(ChannelRoles::Broadcaster);
+
+    /// whether you have higher chat privileges in IRC
+    pub fn is_privileged(&self) -> bool {
+        self.intersects(Self::PRIVILEGED_MASK)
     }
 }
 

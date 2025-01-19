@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::ops::Range;
 use thiserror::Error;
 
+use super::iter::BadgeIter;
+
 macro_rules! raw_tags {
     (
         $(#[$top_comment:meta])*
@@ -257,6 +259,10 @@ impl RawIrcTags {
 
     pub fn iter<'a>(&'a self, src: &'a str) -> TagsIter<'a> {
         TagsIter::new(self, src)
+    }
+
+    pub fn badge_iter<'a>(&'a self, src: &'a str) -> BadgeIter<'a> {
+        BadgeIter::new(src)
     }
 
     pub fn get_color(&self, src: &str) -> Option<[u8; 3]> {
