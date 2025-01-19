@@ -44,6 +44,9 @@ impl<'a> Iterator for BadgeIter<'a> {
     type Item = (&'a str, &'a str);
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.src.len() {
+            return None;
+        }
         let cur_slice = &self.src[self.pos..];
         let boundary = match memchr::memchr(b',', cur_slice.as_bytes()) {
             Some(f) => f,
@@ -62,9 +65,15 @@ impl<'a> Iterator for BadgeIter<'a> {
 
 #[test]
 fn badge_iter() {
-    const TEST_BADGES: &str = "subscriber/3000,mod/1,vip/1";
+    const TEST_BADGES: &str = "subscriber/14,mod/1,vip/1";
     let mut iter = BadgeIter::new(TEST_BADGES);
-    assert_eq!(iter.next().unwrap(), ("subscriber", "3000"));
+    assert_eq!(iter.next().unwrap(), ("subscriber", "14"));
     assert_eq!(iter.next().unwrap(), ("mod", "1"));
     assert_eq!(iter.next().unwrap(), ("vip", "1"));
+    assert!(iter.next().is_none());
+
+    const SINGLE_BADGE: &str = "subscriber/14";
+    let mut iter = BadgeIter::new(SINGLE_BADGE);
+    assert_eq!(iter.next().unwrap(), ("subscriber", "14"));
+    assert!(iter.next().is_none());
 }
