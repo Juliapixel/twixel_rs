@@ -3,7 +3,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use futures::StreamExt;
 use twixel_core::{
-    irc_message::{tags::OwnedTag, AnySemantic}, Auth, ConnectionPool, IrcMessage, MessageBuilder,
+    irc_message::{tags::OwnedTag, AnySemantic},
+    Auth, ConnectionPool, IrcMessage, MessageBuilder,
 };
 
 use crate::{

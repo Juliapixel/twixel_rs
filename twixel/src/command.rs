@@ -104,8 +104,7 @@ impl Guard for CommandGuard {
             let Some((prefix, cmd)) = first_word.split_at_checked(1) else {
                 return false;
             };
-            prefix == self.prefix
-                && self.names.iter().any(|name| name == cmd)
+            prefix == self.prefix && self.names.iter().any(|name| name == cmd)
         } else {
             false
         }

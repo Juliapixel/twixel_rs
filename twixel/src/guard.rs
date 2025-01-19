@@ -1,6 +1,9 @@
 #![allow(unused)]
 
-use twixel_core::{irc_message::{tags::OwnedTag, AnySemantic}, IrcCommand, IrcMessage};
+use twixel_core::{
+    irc_message::{tags::OwnedTag, AnySemantic},
+    IrcCommand, IrcMessage,
+};
 
 pub struct GuardContext<'a> {
     // pub channel_info: &'a ChannelInfo,
@@ -161,7 +164,8 @@ impl Guard for CooldownGuard {
         let ts = ctx.message.get_timestamp().unwrap_or(chrono::Utc::now());
         let elapsed = (ts - *last_used);
         // either some number of seconds or 0
-        let elapsed = std::time::Duration::from_secs(elapsed.num_seconds().try_into().unwrap_or_default());
+        let elapsed =
+            std::time::Duration::from_secs(elapsed.num_seconds().try_into().unwrap_or_default());
 
         // on cooldown
         if elapsed <= self.cooldown {
@@ -196,9 +200,7 @@ impl Guard for UserGuard {
         let AnySemantic::PrivMsg(msg) = ctx.message else {
             return false;
         };
-        msg.sender_id()
-            .map(|t| t == self.user_id)
-            .unwrap_or(false)
+        msg.sender_id().map(|t| t == self.user_id).unwrap_or(false)
     }
 }
 
