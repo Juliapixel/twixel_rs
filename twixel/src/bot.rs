@@ -3,7 +3,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use futures::StreamExt;
 use twixel_core::{
-    irc_message::tags::OwnedTag, Auth, ConnectionPool, IrcCommand, IrcMessage, MessageBuilder,
+    irc_message::{tags::OwnedTag, AnySemantic}, Auth, ConnectionPool, IrcMessage, MessageBuilder,
 };
 
 use crate::{
@@ -63,7 +63,7 @@ impl Bot {
 
     fn get_cmd_cx(&self, msg: IrcMessage<'static>, conn_idx: usize) -> CommandContext<BotCommand> {
         CommandContext {
-            msg,
+            msg: msg.into(),
             connection_idx: conn_idx,
             bot_tx: self.cmd_tx.clone(),
             data_store: Arc::new(DashMap::new()),
@@ -80,7 +80,7 @@ impl Bot {
                         let idx = recv.as_ref().map(|r| r.1).ok();
                         for msg in recv.map(|r| r.0).into_iter().flatten() {
                             let cx = CommandContext {
-                                msg,
+                                msg: msg.into(),
                                 connection_idx: idx.unwrap(),
                                 bot_tx: self.cmd_tx.clone(),
                                 data_store: Arc::default()
@@ -130,32 +130,35 @@ impl Bot {
             let cmds = cmds;
             loop {
                 let cx = rx.recv().await.unwrap();
-                match cx.msg.get_command() {
-                    IrcCommand::Ping => {
+                match &cx.msg {
+                    AnySemantic::Ping(msg) => {
                         cx.bot_tx
                             .send(BotCommand::SendRawIrc(
-                                MessageBuilder::pong(cx.msg.get_param(0).unwrap()).to_owned(),
+                                msg.respond().to_owned(),
                                 cx.connection_idx,
                             ))
                             .await
                             .unwrap();
                         continue;
                     }
-                    IrcCommand::AuthSuccessful => {
+                    AnySemantic::AuthSuccessful(_msg) => {
                         log::info!("auth successful");
                         continue;
                     }
-                    IrcCommand::Reconnect => {
+                    AnySemantic::Reconnect(_msg) => {
                         cx.bot_tx
                             .send(BotCommand::Reconnect(cx.connection_idx))
                             .await
                             .unwrap();
                         continue;
                     }
-                    IrcCommand::PrivMsg => (),
-                    IrcCommand::Useless => continue,
-                    _ => {
-                        log::error!("untreated message kind: {:?}", cx.msg.raw())
+                    AnySemantic::PrivMsg(_msg) => (),
+                    AnySemantic::Useless(_msg) => continue,
+                    AnySemantic::UserState(msg) => {
+                        log::debug!("received userstate from irc: {:?}", msg.roles())
+                    }
+                    msg => {
+                        log::error!("untreated message kind: {:?}", msg.raw())
                     }
                 }
                 let gcx = GuardContext { message: &cx.msg };

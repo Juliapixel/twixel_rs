@@ -12,6 +12,18 @@ impl PrivMsg<'_> {
         msg_from_param(msg_param)
     }
 
+    pub fn sender_login(&self) -> Option<&str> {
+        self.get_tag(OwnedTag::Login)
+    }
+
+    pub fn sender_id(&self) -> Option<&str> {
+        self.get_tag(OwnedTag::UserId)
+    }
+
+    pub fn channel_id(&self) -> Option<&str> {
+        self.get_tag(OwnedTag::RoomId)
+    }
+
     pub fn channel_login(&self) -> &str {
         let chan_param = self
             .inner

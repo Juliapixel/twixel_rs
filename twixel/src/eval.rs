@@ -191,8 +191,7 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
                         reply_id: None,
                     })
                     .await
-                    .unwrap();
-                    // sent_msg_clone.store(true, Ordering::Relaxed);
+                    .is_ok()
                 }
             })),
         )

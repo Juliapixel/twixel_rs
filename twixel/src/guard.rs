@@ -1,10 +1,10 @@
 #![allow(unused)]
 
-use twixel_core::{irc_message::tags::OwnedTag, IrcCommand, IrcMessage};
+use twixel_core::{irc_message::{tags::OwnedTag, AnySemantic}, IrcCommand, IrcMessage};
 
 pub struct GuardContext<'a> {
     // pub channel_info: &'a ChannelInfo,
-    pub message: &'a IrcMessage<'a>,
+    pub message: &'a AnySemantic<'a>,
 }
 
 impl<'a> GuardContext<'a> {
@@ -12,7 +12,7 @@ impl<'a> GuardContext<'a> {
     //     self.channel_info
     // }
 
-    pub fn message(&self) -> &IrcMessage<'a> {
+    pub fn message(&self) -> &AnySemantic<'a> {
         self.message
     }
 }
@@ -152,16 +152,22 @@ impl<A: Guard + 'static> FromIterator<A> for AnyGuard {
 
 pub struct CooldownGuard {
     cooldown: std::time::Duration,
-    last_used: parking_lot::Mutex<std::time::Instant>,
+    last_used: parking_lot::Mutex<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Guard for CooldownGuard {
-    fn check(&self, _ctx: &GuardContext) -> bool {
+    fn check(&self, ctx: &GuardContext) -> bool {
+        let last_used = self.last_used.lock();
+        let ts = ctx.message.get_timestamp().unwrap_or(chrono::Utc::now());
+        let elapsed = (ts - *last_used);
+        // either some number of seconds or 0
+        let elapsed = std::time::Duration::from_secs(elapsed.num_seconds().try_into().unwrap_or_default());
+
         // on cooldown
-        if std::time::Instant::now() - *self.last_used.lock() <= self.cooldown {
+        if elapsed <= self.cooldown {
             false
         } else {
-            *self.last_used.lock() = std::time::Instant::now();
+            *self.last_used.lock() = ts;
             true
         }
     }
@@ -187,11 +193,10 @@ impl UserGuard {
 
 impl Guard for UserGuard {
     fn check(&self, ctx: &GuardContext) -> bool {
-        if ctx.message().get_command() != IrcCommand::PrivMsg {
+        let AnySemantic::PrivMsg(msg) = ctx.message else {
             return false;
-        }
-        ctx.message()
-            .get_tag(OwnedTag::UserId)
+        };
+        msg.sender_id()
             .map(|t| t == self.user_id)
             .unwrap_or(false)
     }

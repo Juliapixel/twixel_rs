@@ -6,7 +6,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use twixel_core::{IrcCommand, IrcMessage};
+use twixel_core::{irc_message::AnySemantic, IrcCommand};
 
 use crate::{
     bot::BotCommand,
@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub struct CommandContext<T: Send> {
-    pub msg: IrcMessage<'static>,
+    pub msg: AnySemantic<'static>,
     pub connection_idx: usize,
     pub bot_tx: tokio::sync::mpsc::Sender<T>,
     pub data_store: Arc<DashMap<TypeId, Box<dyn Any + Send + Sync>>>,
@@ -61,16 +61,18 @@ impl CommandHandler for StaticMessageHandler {
         &self,
         cx: CommandContext<BotCommand>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
-        let msg = self.msg.clone();
+        let reply = self.msg.clone();
         Box::pin(async move {
-            cx.bot_tx
-                .send(BotCommand::SendMessage {
-                    channel_login: cx.msg.get_param(0).unwrap().split_at(1).1.into(),
-                    message: msg,
-                    reply_id: None,
-                })
-                .await
-                .unwrap();
+            if let AnySemantic::PrivMsg(msg) = cx.msg {
+                cx.bot_tx
+                    .send(BotCommand::SendMessage {
+                        channel_login: msg.channel_login().to_owned(),
+                        message: reply,
+                        reply_id: None,
+                    })
+                    .await
+                    .unwrap();
+            }
         })
     }
 }
@@ -94,23 +96,19 @@ impl Guard for CommandGuard {
         if ctx.message().get_command() != IrcCommand::PrivMsg {
             return false;
         }
-        let Some((_, msg)) = ctx
-            .message()
-            .get_param(1)
-            .and_then(|m| m.split_at_checked(1))
-        else {
-            return false;
-        };
-        let Some((prefix, cmd)) = msg.split_at_checked(1) else {
-            return false;
-        };
-        if prefix != self.prefix {
-            return false;
+        if let AnySemantic::PrivMsg(msg) = ctx.message {
+            let text = msg.message_text();
+            let Some(first_word) = text.split_ascii_whitespace().next() else {
+                return false;
+            };
+            let Some((prefix, cmd)) = first_word.split_at_checked(1) else {
+                return false;
+            };
+            prefix == self.prefix
+                && self.names.iter().any(|name| name == cmd)
+        } else {
+            false
         }
-        cmd.split_ascii_whitespace()
-            .next()
-            .map(|n| self.names.iter().any(|s| s == n))
-            .unwrap_or(false)
     }
 }
 

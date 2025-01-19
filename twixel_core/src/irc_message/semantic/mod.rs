@@ -3,9 +3,12 @@
 
 mod clearchat;
 mod clearmsg;
+mod ping;
 mod privmsg;
 mod userstate;
 mod util;
+
+use std::fmt::Display;
 
 use crate::IrcMessage;
 
@@ -27,7 +30,7 @@ macro_rules! impl_semantic {
             #[derive(Debug, PartialEq, Eq)]
             #[cfg_attr(feature = "serde", derive(serde::Serialize))]
             #[cfg_attr(feature = "serde", serde(transparent))]
-            #[doc = concat!("a semantic wrapper around a ", stringify!($cmd), " [IrcMessage](super::IrcMessage)")]
+            #[doc = concat!("a semantic wrapper around a ", stringify!($cmd), " [IrcMessage](super::message::IrcMessage)")]
             pub struct $cmd<'a> {
                 inner: $crate::irc_message::message::IrcMessage<'a>
             }
@@ -60,8 +63,17 @@ macro_rules! impl_semantic {
             }
         )+
 
+        /// enum containing all semantic wrappers around [IrcMessage](super::message::IrcMessage)
         pub enum AnySemantic<'a> {
             $($cmd($cmd<'a>)),+
+        }
+
+        impl<'a> ::std::ops::Deref for AnySemantic<'a> {
+            type Target = $crate::irc_message::message::IrcMessage<'a>;
+
+            fn deref(&self) -> &Self::Target {
+                &self.inner()
+            }
         }
 
         impl<'a> From<IrcMessage<'a>> for AnySemantic<'a> {
@@ -120,3 +132,9 @@ impl_semantic!(
     AuthSuccessful,
     Useless
 );
+
+impl Display for AnySemantic<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.inner().raw())
+    }
+}
