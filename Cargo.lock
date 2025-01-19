@@ -2340,6 +2340,7 @@ dependencies = [
  "bitflags",
  "chrono",
  "criterion",
+ "either",
  "futures-util",
  "hashbrown 0.14.5",
  "log",
