@@ -17,6 +17,7 @@ pub struct CommandContext<T: Send> {
     pub msg: AnySemantic<'static>,
     pub connection_idx: usize,
     pub bot_tx: tokio::sync::mpsc::Sender<T>,
+    // TODO: implement this
     pub data_store: Arc<DashMap<TypeId, Box<dyn Any + Send + Sync>>>,
 }
 
