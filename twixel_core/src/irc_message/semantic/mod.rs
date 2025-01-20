@@ -3,6 +3,7 @@
 
 mod clearchat;
 mod clearmsg;
+mod notice;
 mod ping;
 mod privmsg;
 mod userstate;
