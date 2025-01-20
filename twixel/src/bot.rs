@@ -7,17 +7,22 @@ use twixel_core::{
 };
 
 use crate::{
-    anymap::AnyMap, command::{Command, CommandContext}, guard::GuardContext, util::limit_str_at_graphemes
+    anymap::AnyMap,
+    command::{Command, CommandContext},
+    guard::GuardContext,
+    util::limit_str_at_graphemes,
 };
 
 #[derive(Default, Clone)]
 pub struct BotData {
-    data: AnyMap
+    data: AnyMap,
 }
 
 impl BotData {
     fn new() -> Self {
-        Self { data: AnyMap::new() }
+        Self {
+            data: AnyMap::new(),
+        }
     }
 
     pub fn get<T: Any + Send + Sync>(&self) -> Option<&T> {

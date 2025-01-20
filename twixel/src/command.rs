@@ -1,7 +1,4 @@
-use std::{
-    future::Future,
-    pin::Pin,
-};
+use std::{future::Future, pin::Pin};
 
 use twixel_core::{irc_message::AnySemantic, IrcCommand};
 

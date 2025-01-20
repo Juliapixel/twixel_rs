@@ -13,7 +13,8 @@ use twixel_core::irc_message::tags::OwnedTag;
 
 use crate::{
     bot::BotCommand,
-    command::{CommandContext, CommandHandler}, util::sanitize_output,
+    command::{CommandContext, CommandHandler},
+    util::sanitize_output,
 };
 
 pub struct EvalHandler {
@@ -135,10 +136,16 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
             | Type::BigInt
             | Type::Constructor
             | Type::Symbol
-            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val).map(|i| i.0 ).unwrap(),
-            Type::String => {
-                val.as_string().map(|i| format!("\"{}\"", i.to_string().unwrap_or("invalid UTF-8 string".into()))).unwrap()
-            }
+            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap(),
+            Type::String => val
+                .as_string()
+                .map(|i| {
+                    format!(
+                        "\"{}\"",
+                        i.to_string().unwrap_or("invalid UTF-8 string".into())
+                    )
+                })
+                .unwrap(),
             Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => ctx
                 .json_stringify(val)
                 .and_then(|i| i.map(|s| s.to_string()).unwrap())

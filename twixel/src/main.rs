@@ -101,16 +101,19 @@ async fn test_data(cx: CommandContext<BotCommand>) {
         return;
     };
 
-    cx.bot_tx.send(BotCommand::SendMessage {
-        channel_login: msg.channel_login().into(),
-        message: data.clone(),
-        reply_id: None
-    }).await.unwrap();
+    cx.bot_tx
+        .send(BotCommand::SendMessage {
+            channel_login: msg.channel_login().into(),
+            message: data.clone(),
+            reply_id: None,
+        })
+        .await
+        .unwrap();
 }
 
 async fn strdbg(cx: CommandContext<BotCommand>) {
     let AnySemantic::PrivMsg(msg) = cx.msg else {
-        return
+        return;
     };
 
     cx.bot_tx

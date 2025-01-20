@@ -4,7 +4,7 @@ use hashbrown::HashMap;
 
 #[derive(Default, Clone)]
 pub struct AnyMap {
-    inner: HashMap<TypeId, Box<dyn AnyClone + Send + Sync + 'static>>
+    inner: HashMap<TypeId, Box<dyn AnyClone + Send + Sync + 'static>>,
 }
 
 impl Clone for Box<dyn AnyClone + Send + Sync + 'static> {
@@ -40,30 +40,36 @@ impl<T: Any + Clone + Send + Sync + 'static> AnyClone for T {
 
 impl AnyMap {
     pub fn new() -> Self {
-        Self { inner: Default::default() }
+        Self {
+            inner: Default::default(),
+        }
     }
 
     pub fn get<T: Any>(&self) -> Option<&T> {
         dbg!(core::any::type_name::<T>());
-        self.inner.get(&TypeId::of::<T>())
+        self.inner
+            .get(&TypeId::of::<T>())
             .and_then(|b| b.as_ref().as_any().downcast_ref::<T>())
     }
 
     pub fn get_mut<T: Any>(&mut self) -> Option<&mut T> {
-        self.inner.get_mut(&TypeId::of::<T>())
+        self.inner
+            .get_mut(&TypeId::of::<T>())
             .and_then(|b| b.as_any_mut().downcast_mut())
     }
 
     pub fn insert<T: AnyClone + Send + Sync + 'static>(&mut self, value: T) -> Option<T> {
         dbg!(core::any::type_name::<T>());
-        self.inner.insert(TypeId::of::<T>(), Box::new(value))
+        self.inner
+            .insert(TypeId::of::<T>(), Box::new(value))
             .and_then(|b| b.into_any().downcast::<T>().ok())
             .map(|b| *b)
     }
 
     pub fn remove<T: Any + Send>(&mut self) -> Option<T> {
         dbg!(core::any::type_name::<T>());
-        self.inner.remove(&TypeId::of::<T>())
+        self.inner
+            .remove(&TypeId::of::<T>())
             .and_then(|b| b.into_any().downcast::<T>().ok())
             .map(|b| *b)
     }
