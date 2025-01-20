@@ -46,7 +46,6 @@ impl AnyMap {
     }
 
     pub fn get<T: Any>(&self) -> Option<&T> {
-        dbg!(core::any::type_name::<T>());
         self.inner
             .get(&TypeId::of::<T>())
             .and_then(|b| b.as_ref().as_any().downcast_ref::<T>())
@@ -59,7 +58,6 @@ impl AnyMap {
     }
 
     pub fn insert<T: AnyClone + Send + Sync + 'static>(&mut self, value: T) -> Option<T> {
-        dbg!(core::any::type_name::<T>());
         self.inner
             .insert(TypeId::of::<T>(), Box::new(value))
             .and_then(|b| b.into_any().downcast::<T>().ok())
@@ -67,7 +65,6 @@ impl AnyMap {
     }
 
     pub fn remove<T: Any + Send>(&mut self) -> Option<T> {
-        dbg!(core::any::type_name::<T>());
         self.inner
             .remove(&TypeId::of::<T>())
             .and_then(|b| b.into_any().downcast::<T>().ok())
