@@ -3,7 +3,7 @@ use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
 use config::CONFIG;
 use futures::TryFutureExt;
-use guard::{Guard, UserGuard};
+use guard::UserGuard;
 use twixel_core::irc_message::AnySemantic;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -35,17 +35,17 @@ async fn main() -> Result<(), anyhow::Error> {
         .data(String::from("global data is here"))
         .add_command(
             CommandBuilder::new(wrap_fn(join), vec!["join".into()], "%")
-                .and(UserGuard::allow(JULIA_ID))
+                .and(UserGuard::allow([JULIA_ID]))
                 .build(),
         )
         .add_command(
             CommandBuilder::new(wrap_fn(test_data), vec!["testdata".into()], "%")
-                .and(UserGuard::allow(JULIA_ID))
+                .and(UserGuard::allow([JULIA_ID]))
                 .build(),
         )
         .add_command(
             CommandBuilder::new(wrap_fn(part), vec!["part".into(), "leave".into()], "%")
-                .and(UserGuard::allow(JULIA_ID))
+                .and(UserGuard::allow([JULIA_ID]))
                 .build(),
         )
         .add_command(
@@ -55,17 +55,13 @@ async fn main() -> Result<(), anyhow::Error> {
                 "%",
             )
             .and(
-                UserGuard::allow(JULIA_ID)
-                    // ryanpotat
-                    .or(UserGuard::allow("457260003"))
-                    // joeiox
-                    .or(UserGuard::allow("275204234")),
+                UserGuard::allow([JULIA_ID, "457260003", "275204234"])
             )
             .build(),
         )
         .add_command(
             CommandBuilder::new(wrap_fn(strdbg), vec!["strdbg".into()], "%")
-                .and(UserGuard::allow(JULIA_ID))
+                .and(UserGuard::allow([JULIA_ID]))
                 .build(),
         )
         .add_command(Command::new(

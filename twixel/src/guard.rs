@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use hashbrown::HashSet;
 use twixel_core::{
     irc_message::{tags::OwnedTag, AnySemantic},
     user::ChannelRoles,
@@ -182,21 +183,23 @@ impl Guard for CooldownGuard {
     }
 }
 
+/// allows or forbids users based on their twitch ID
 pub struct UserGuard {
-    user_id: String,
+    user_ids: HashSet<String>,
 }
 
 impl UserGuard {
-    pub fn allow(user_id: impl Into<String>) -> Self {
+    pub fn allow(user_ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
-            user_id: user_id.into(),
+            user_ids: user_ids.into_iter().map(Into::into).collect(),
         }
     }
 
-    pub fn forbid(user_id: impl Into<String>) -> NotGuard<Self> {
-        NotGuard(Self {
-            user_id: user_id.into(),
-        })
+    pub fn forbid(user_ids: impl IntoIterator<Item = impl Into<String>>) -> NotGuard<Self> {
+        Self {
+            user_ids: user_ids.into_iter().map(Into::into).collect(),
+        }
+        .not()
     }
 }
 
@@ -205,31 +208,40 @@ impl Guard for UserGuard {
         let AnySemantic::PrivMsg(msg) = ctx.message else {
             return false;
         };
-        msg.sender_id().map(|t| t == self.user_id).unwrap_or(false)
+        msg.sender_id()
+            .map(|t| self.user_ids.contains(t))
+            .unwrap_or(false)
     }
 }
 
+/// allows or forbids channels based on their twitch ID
 pub struct ChannelGuard {
-    channel_id: String,
+    channel_ids: HashSet<String>,
 }
 
 impl ChannelGuard {
-    pub fn allow(channel_id: impl Into<String>) -> Self {
+    pub fn allow(channel_id: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
-            channel_id: channel_id.into(),
+            channel_ids: channel_id.into_iter().map(Into::into).collect(),
         }
     }
 
-    pub fn forbid(channel_id: impl Into<String>) -> NotGuard<Self> {
-        NotGuard(Self {
-            channel_id: channel_id.into(),
-        })
+    pub fn forbid(channel_id: impl IntoIterator<Item = impl Into<String>>) -> NotGuard<Self> {
+        Self {
+            channel_ids: channel_id.into_iter().map(Into::into).collect(),
+        }
+        .not()
     }
 }
 
 impl Guard for ChannelGuard {
     fn check(&self, ctx: &GuardContext) -> bool {
-        self.channel_id.as_str() == ctx.message().get_tag(OwnedTag::RoomId).unwrap_or_default()
+        let AnySemantic::PrivMsg(msg) = ctx.message else {
+            return false;
+        };
+        msg.channel_id()
+            .map(|t| self.channel_ids.contains(t))
+            .unwrap_or(false)
     }
 }
 
