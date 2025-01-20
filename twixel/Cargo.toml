@@ -12,10 +12,10 @@ dotenvy = "0.15.7"
 either = { version = "1.13.0", features = ["serde"] }
 env_logger = "0.11.6"
 futures = "0.3.31"
+hashbrown = "0.15.2"
 log = "0.4.25"
 owo-colors = "4.1.0"
 parking_lot = "0.12.3"
-rquickjs = { version = "0.8.1", features = ["either", "futures", "macro"]}
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.135"
 smart-default = "0.7.1"
@@ -37,3 +37,11 @@ features = [
     "gzip",
     "zstd",
 ]
+
+[dependencies.rquickjs]
+version = "0.8.1"
+features = ["either", "futures", "macro"]
+
+[target.aarch64-linux-android.dependencies.rquickjs]
+version = "0.8.1"
+features = ["either", "futures", "macro", "bindgen"]

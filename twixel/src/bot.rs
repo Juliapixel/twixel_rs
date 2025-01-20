@@ -1,21 +1,42 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
-use dashmap::DashMap;
 use futures::StreamExt;
 use twixel_core::{
     irc_message::{tags::OwnedTag, AnySemantic},
-    Auth, ConnectionPool, IrcMessage, MessageBuilder,
+    Auth, ConnectionPool, MessageBuilder,
 };
 
 use crate::{
-    command::{Command, CommandContext},
-    guard::GuardContext,
-    util::limit_str_at_graphemes,
+    anymap::AnyMap, command::{Command, CommandContext}, guard::GuardContext, util::limit_str_at_graphemes
 };
+
+#[derive(Default, Clone)]
+pub struct BotData {
+    data: AnyMap
+}
+
+impl BotData {
+    fn new() -> Self {
+        Self { data: AnyMap::new() }
+    }
+
+    pub fn get<T: Any + Send + Sync>(&self) -> Option<&T> {
+        self.data.get::<Arc<T>>().map(|arc| &**arc)
+    }
+
+    fn insert<T: Any + Send + Sync>(&mut self, value: T) -> Option<Arc<T>> {
+        self.data.insert::<Arc<T>>(Arc::new(value))
+    }
+
+    fn remove<T: Any + Send + Sync>(&mut self) -> Option<T> {
+        self.data.remove::<T>()
+    }
+}
 
 pub struct Bot {
     conn_pool: ConnectionPool,
     commands: Vec<Command>,
+    data: BotData,
     cmd_rx: tokio::sync::mpsc::Receiver<BotCommand>,
     cmd_tx: tokio::sync::mpsc::Sender<BotCommand>,
 }
@@ -44,9 +65,10 @@ impl Bot {
             )
             .await
             .unwrap(),
+            commands: vec![],
+            data: Default::default(),
             cmd_rx: rx,
             cmd_tx: tx,
-            commands: vec![],
         }
     }
 
@@ -62,18 +84,14 @@ impl Bot {
         self
     }
 
-    fn get_cmd_cx(&self, msg: IrcMessage<'static>, conn_idx: usize) -> CommandContext<BotCommand> {
-        CommandContext {
-            msg: msg.into(),
-            connection_idx: conn_idx,
-            bot_tx: self.cmd_tx.clone(),
-            data_store: Arc::new(DashMap::new()),
-        }
+    pub fn data<T: Any + Send + Sync>(mut self, data: T) -> Self {
+        self.data.insert(data);
+        self
     }
 
     pub async fn run(mut self) {
         let (tx, mut rx) = tokio::sync::mpsc::channel(CMD_CHANNEL_SIZE);
-        let cmds = self.commands;
+        let cmds: Arc<[Command]> = Arc::from(self.commands);
         let receiver = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -84,8 +102,9 @@ impl Bot {
                                 msg: msg.into(),
                                 connection_idx: idx.unwrap(),
                                 bot_tx: self.cmd_tx.clone(),
-                                data_store: Arc::default()
+                                data_store: self.data.clone()
                             };
+
                             let new_tx = tx.clone();
                             tokio::spawn(async move { new_tx.send(cx).await.unwrap(); });
                         }
@@ -115,6 +134,7 @@ impl Bot {
                             Some(BotCommand::PartChannel(channel)) => {
                                 self.conn_pool.part_channel(&channel).await.unwrap();
                             },
+                            #[allow(unreachable_patterns, reason = "because i want to")]
                             Some(_) => {
                                 todo!("handle other BotCommands!!!");
                             },

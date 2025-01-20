@@ -1,15 +1,12 @@
 use std::{
-    any::{Any, TypeId},
     future::Future,
     pin::Pin,
-    sync::Arc,
 };
 
-use dashmap::DashMap;
 use twixel_core::{irc_message::AnySemantic, IrcCommand};
 
 use crate::{
-    bot::BotCommand,
+    bot::{BotCommand, BotData},
     guard::{AndGuard, Guard, GuardContext, OrGuard},
 };
 
@@ -17,8 +14,7 @@ pub struct CommandContext<T: Send> {
     pub msg: AnySemantic<'static>,
     pub connection_idx: usize,
     pub bot_tx: tokio::sync::mpsc::Sender<T>,
-    // TODO: implement this
-    pub data_store: Arc<DashMap<TypeId, Box<dyn Any + Send + Sync>>>,
+    pub data_store: BotData,
 }
 
 pub trait CommandHandler {

@@ -3,8 +3,10 @@ use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
 use futures::TryFutureExt;
 use guard::{Guard, UserGuard};
+use twixel_core::irc_message::AnySemantic;
 use unicode_segmentation::UnicodeSegmentation;
 
+mod anymap;
 mod bot;
 mod cli;
 mod command;
@@ -31,8 +33,14 @@ async fn main() -> Result<(), anyhow::Error> {
     .await
     .add_channels(ARGS.channels.iter().map(|s| s.as_str()))
     .await
+    .data(String::from("global data is here"))
     .add_command(
         CommandBuilder::new(wrap_fn(join), vec!["join".into()], "%")
+            .and(UserGuard::allow(JULIA_ID))
+            .build(),
+    )
+    .add_command(
+        CommandBuilder::new(wrap_fn(test_data), vec!["testdata".into()], "%")
             .and(UserGuard::allow(JULIA_ID))
             .build(),
     )
@@ -83,26 +91,37 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn strdbg(cx: CommandContext<BotCommand>) {
-    let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
-    let Some(msg) = cx
-        .msg
-        .get_param(1)
-        .and_then(|m| m.split_once(' '))
-        .map(|(_, m)| m)
-    else {
+async fn test_data(cx: CommandContext<BotCommand>) {
+    let AnySemantic::PrivMsg(msg) = cx.msg else {
         return;
+    };
+
+    let Some(data) = cx.data_store.get::<String>() else {
+        log::error!("FAILED TO GET DATA FROM BOT STORE");
+        return;
+    };
+
+    cx.bot_tx.send(BotCommand::SendMessage {
+        channel_login: msg.channel_login().into(),
+        message: data.clone(),
+        reply_id: None
+    }).await.unwrap();
+}
+
+async fn strdbg(cx: CommandContext<BotCommand>) {
+    let AnySemantic::PrivMsg(msg) = cx.msg else {
+        return
     };
 
     cx.bot_tx
         .send(BotCommand::SendMessage {
-            channel_login: source_channel,
+            channel_login: msg.channel_login().into(),
             message: format!(
                 "{} graphemes, {} chars, {} bytes, {:?}",
-                msg.graphemes(true).count(),
-                msg.chars().count(),
-                msg.len(),
-                msg
+                msg.message_text().graphemes(true).count(),
+                msg.message_text().chars().count(),
+                msg.message_text().len(),
+                msg.message_text()
             ),
             reply_id: None,
         })
