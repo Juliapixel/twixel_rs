@@ -185,6 +185,7 @@ impl Bot {
                             ),
                             None => log::warn!("NOTICE message had no kind"),
                         };
+                        continue;
                     }
                     AnySemantic::Ping(msg) => {
                         cx.bot_tx
@@ -210,10 +211,12 @@ impl Bot {
                     AnySemantic::PrivMsg(_msg) => (),
                     AnySemantic::Useless(_msg) => continue,
                     AnySemantic::UserState(msg) => {
-                        log::debug!("received userstate from irc: {:?}", msg.roles())
+                        log::debug!("received userstate from irc: {:?}", msg.roles());
+                        continue;
                     }
                     msg => {
-                        log::warn!("untreated message kind: {:?}", msg.raw())
+                        log::warn!("untreated message kind: {:?}", msg.raw());
+                        continue;
                     }
                 }
                 let gcx = GuardContext {
