@@ -176,6 +176,16 @@ impl Bot {
             loop {
                 let cx = rx.recv().await.unwrap();
                 match &cx.msg {
+                    AnySemantic::Notice(msg) => {
+                        match msg.kind() {
+                            Some(Ok(k)) => log::info!("received notice of kind: {k}"),
+                            Some(Err(_)) => log::error!(
+                                "unknown notice kind: {}",
+                                msg.get_tag(OwnedTag::MsgId).unwrap()
+                            ),
+                            None => log::warn!("NOTICE message had no kind"),
+                        };
+                    }
                     AnySemantic::Ping(msg) => {
                         cx.bot_tx
                             .send(BotCommand::SendRawIrc(
@@ -203,7 +213,7 @@ impl Bot {
                         log::debug!("received userstate from irc: {:?}", msg.roles())
                     }
                     msg => {
-                        log::error!("untreated message kind: {:?}", msg.raw())
+                        log::warn!("untreated message kind: {:?}", msg.raw())
                     }
                 }
                 let gcx = GuardContext {
