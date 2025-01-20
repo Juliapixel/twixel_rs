@@ -103,7 +103,7 @@ async fn mod_only(cx: CommandContext<BotCommand>) {
     };
 
     cx.bot_tx
-        .send(BotCommand::respond(msg, reply, false))
+        .send(BotCommand::respond(&msg, reply, false))
         .await
         .unwrap();
 }
@@ -113,18 +113,16 @@ async fn strdbg(cx: CommandContext<BotCommand>) {
         return;
     };
 
+    let response = format!(
+        "{} graphemes, {} chars, {} bytes, {:?}",
+        msg.message_text().graphemes(true).count(),
+        msg.message_text().chars().count(),
+        msg.message_text().len(),
+        msg.message_text()
+    );
+
     cx.bot_tx
-        .send(BotCommand::SendMessage {
-            channel_login: msg.channel_login().into(),
-            message: format!(
-                "{} graphemes, {} chars, {} bytes, {:?}",
-                msg.message_text().graphemes(true).count(),
-                msg.message_text().chars().count(),
-                msg.message_text().len(),
-                msg.message_text()
-            ),
-            reply_id: None,
-        })
+        .send(BotCommand::respond(&msg, response, false))
         .await
         .unwrap()
 }
@@ -135,6 +133,10 @@ struct CatFact {
 }
 
 async fn cat_fact(cx: CommandContext<BotCommand>) {
+    let AnySemantic::PrivMsg(msg) = cx.msg else {
+        return;
+    };
+
     let resp = match reqwest::get("https://catfact.ninja/fact")
         .and_then(|r| r.json::<CatFact>())
         .await
@@ -143,54 +145,49 @@ async fn cat_fact(cx: CommandContext<BotCommand>) {
         Err(e) => e.to_string(),
     };
 
-    let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
-
     cx.bot_tx
-        .send(BotCommand::SendMessage {
-            channel_login: source_channel,
-            message: resp,
-            reply_id: None,
-        })
+        .send(BotCommand::respond(&msg, resp, false))
         .await
         .unwrap();
 }
 
 async fn part(cx: CommandContext<BotCommand>) {
-    let Some((Some(_cmd), arg)) = cx.msg.get_param(1).map(|m| m.split_at(1)).map(|(_, m)| {
-        let mut splitter = m.split_whitespace();
-        (splitter.next(), splitter.next())
-    }) else {
+    let AnySemantic::PrivMsg(msg) = cx.msg else {
         return;
     };
 
-    let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
+    let args = msg
+        .message_text()
+        .split_ascii_whitespace()
+        .skip(1)
+        .collect::<Vec<_>>();
 
-    match arg {
-        Some(chan) => {
+    let source_channel = msg.channel_login();
+
+    if args.is_empty() {
+        let source_channel = source_channel.to_owned();
+        cx.bot_tx
+            .send(BotCommand::respond(&msg, "byeeee :333".into(), false))
+            .await
+            .unwrap();
+        cx.bot_tx
+            .send(BotCommand::PartChannel(source_channel))
+            .await
+            .unwrap();
+    } else {
+        let channels = args.join(", ");
+
+        cx.bot_tx
+            .send(BotCommand::respond(
+                &msg,
+                format!("parting {channels}"),
+                false,
+            ))
+            .await
+            .unwrap();
+        for chan in args {
             cx.bot_tx
-                .send(BotCommand::PartChannel(chan.into()))
-                .await
-                .unwrap();
-            cx.bot_tx
-                .send(BotCommand::SendMessage {
-                    channel_login: source_channel,
-                    message: format!("parting @{chan}"),
-                    reply_id: None,
-                })
-                .await
-                .unwrap();
-        }
-        None => {
-            cx.bot_tx
-                .send(BotCommand::SendMessage {
-                    channel_login: source_channel.clone(),
-                    message: "byeeee :333".to_string(),
-                    reply_id: None,
-                })
-                .await
-                .unwrap();
-            cx.bot_tx
-                .send(BotCommand::PartChannel(source_channel.clone()))
+                .send(BotCommand::PartChannel(chan.to_owned()))
                 .await
                 .unwrap();
         }
@@ -198,25 +195,31 @@ async fn part(cx: CommandContext<BotCommand>) {
 }
 
 async fn join(cx: CommandContext<BotCommand>) {
-    let Some((Some(_cmd), Some(arg))) = cx.msg.get_param(1).map(|m| m.split_at(1)).map(|(_, m)| {
-        let mut splitter = m.split_whitespace();
-        (splitter.next(), splitter.next())
-    }) else {
+    let AnySemantic::PrivMsg(msg) = cx.msg else {
         return;
     };
 
-    log::info!("Joining {arg}");
+    let args = msg
+        .message_text()
+        .split_ascii_whitespace()
+        .skip(1)
+        .collect::<Vec<_>>();
+
+    log::info!("Joining {}", args.join(", "));
 
     cx.bot_tx
-        .send(BotCommand::JoinChannel(arg.into()))
+        .send(BotCommand::respond(
+            &msg,
+            format!("joining {}", args.join(", ")),
+            false,
+        ))
         .await
         .unwrap();
-    cx.bot_tx
-        .send(BotCommand::SendMessage {
-            channel_login: cx.msg.get_param(0).unwrap().split_at(1).1.into(),
-            message: format!("joining @{arg}"),
-            reply_id: None,
-        })
-        .await
-        .unwrap();
+
+    for chan in args {
+        cx.bot_tx
+            .send(BotCommand::JoinChannel(chan.into()))
+            .await
+            .unwrap();
+    }
 }

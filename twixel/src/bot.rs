@@ -59,7 +59,7 @@ pub enum BotCommand {
 }
 
 impl BotCommand {
-    pub fn respond(msg: PrivMsg, response: String, reply: bool) -> Self {
+    pub fn respond(msg: &PrivMsg, response: String, reply: bool) -> Self {
         let reply_id = if reply {
             msg.reply_to_id().map(|s| s.to_owned())
         } else {
