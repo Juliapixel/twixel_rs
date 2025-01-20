@@ -1,6 +1,7 @@
 use bot::{Bot, BotCommand};
 use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
+use config::CONFIG;
 use futures::TryFutureExt;
 use guard::{Guard, UserGuard};
 use twixel_core::irc_message::AnySemantic;
@@ -10,6 +11,7 @@ mod anymap;
 mod bot;
 mod cli;
 mod command;
+mod config;
 mod eval;
 mod guard;
 mod util;
@@ -26,64 +28,61 @@ async fn main() -> Result<(), anyhow::Error> {
         },
     ));
 
-    let bot = Bot::new(
-        dotenvy::var("TWITCH_LOGIN").unwrap(),
-        dotenvy::var("TWITCH_TOKEN").unwrap(),
-    )
-    .await
-    .add_channels(ARGS.channels.iter().map(|s| s.as_str()))
-    .await
-    .data(String::from("global data is here"))
-    .add_command(
-        CommandBuilder::new(wrap_fn(join), vec!["join".into()], "%")
-            .and(UserGuard::allow(JULIA_ID))
+    let bot = Bot::new(CONFIG.twitch.login.clone(), CONFIG.twitch.token.clone())
+        .await
+        .add_channels(ARGS.channels.iter().map(|s| s.as_str()))
+        .await
+        .data(String::from("global data is here"))
+        .add_command(
+            CommandBuilder::new(wrap_fn(join), vec!["join".into()], "%")
+                .and(UserGuard::allow(JULIA_ID))
+                .build(),
+        )
+        .add_command(
+            CommandBuilder::new(wrap_fn(test_data), vec!["testdata".into()], "%")
+                .and(UserGuard::allow(JULIA_ID))
+                .build(),
+        )
+        .add_command(
+            CommandBuilder::new(wrap_fn(part), vec!["part".into(), "leave".into()], "%")
+                .and(UserGuard::allow(JULIA_ID))
+                .build(),
+        )
+        .add_command(
+            CommandBuilder::new(
+                eval::EvalHandler::new(),
+                vec!["eval".into(), "js".into()],
+                "%",
+            )
+            .and(
+                UserGuard::allow(JULIA_ID)
+                    // ryanpotat
+                    .or(UserGuard::allow("457260003"))
+                    // joeiox
+                    .or(UserGuard::allow("275204234")),
+            )
             .build(),
-    )
-    .add_command(
-        CommandBuilder::new(wrap_fn(test_data), vec!["testdata".into()], "%")
-            .and(UserGuard::allow(JULIA_ID))
-            .build(),
-    )
-    .add_command(
-        CommandBuilder::new(wrap_fn(part), vec!["part".into(), "leave".into()], "%")
-            .and(UserGuard::allow(JULIA_ID))
-            .build(),
-    )
-    .add_command(
-        CommandBuilder::new(
-            eval::EvalHandler::new(),
-            vec!["eval".into(), "js".into()],
+        )
+        .add_command(
+            CommandBuilder::new(wrap_fn(strdbg), vec!["strdbg".into()], "%")
+                .and(UserGuard::allow(JULIA_ID))
+                .build(),
+        )
+        .add_command(Command::new(
+            StaticMessageHandler {
+                msg: "idk bro figure it out".into(),
+            },
+            vec!["help".into(), "commands".into()],
             "%",
-        )
-        .and(
-            UserGuard::allow(JULIA_ID)
-                // ryanpotat
-                .or(UserGuard::allow("457260003"))
-                // joeiox
-                .or(UserGuard::allow("275204234")),
-        )
-        .build(),
-    )
-    .add_command(
-        CommandBuilder::new(wrap_fn(strdbg), vec!["strdbg".into()], "%")
-            .and(UserGuard::allow(JULIA_ID))
-            .build(),
-    )
-    .add_command(Command::new(
-        StaticMessageHandler {
-            msg: "idk bro figure it out".into(),
-        },
-        vec!["help".into(), "commands".into()],
-        "%",
-    ))
-    .add_command(Command::new(
-        StaticMessageHandler {
-            msg: "pong! :3c".into(),
-        },
-        vec!["ping".into()],
-        "%",
-    ))
-    .add_command(Command::new(wrap_fn(cat_fact), vec!["catfact".into()], "%"));
+        ))
+        .add_command(Command::new(
+            StaticMessageHandler {
+                msg: "pong! :3c".into(),
+            },
+            vec!["ping".into()],
+            "%",
+        ))
+        .add_command(Command::new(wrap_fn(cat_fact), vec!["catfact".into()], "%"));
 
     log::info!("twixel bot started");
 

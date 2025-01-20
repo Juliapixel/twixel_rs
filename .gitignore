@@ -2,3 +2,4 @@ target/
 .vscode/
 Cross.toml
 .env
+config.toml
