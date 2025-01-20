@@ -97,6 +97,8 @@ impl Bot {
     pub async fn run(mut self) {
         let (tx, mut rx) = tokio::sync::mpsc::channel(CMD_CHANNEL_SIZE);
         let cmds: Arc<[Command]> = Arc::from(self.commands);
+        let data_store = Arc::new(self.data);
+        let data_store_2 = Arc::clone(&data_store);
         let receiver = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -107,7 +109,7 @@ impl Bot {
                                 msg: msg.into(),
                                 connection_idx: idx.unwrap(),
                                 bot_tx: self.cmd_tx.clone(),
-                                data_store: self.data.clone()
+                                data_store: Arc::clone(&data_store)
                             };
 
                             let new_tx = tx.clone();
@@ -154,6 +156,7 @@ impl Bot {
         });
         let cmd_handler = tokio::spawn(async move {
             let cmds = cmds;
+            let data_store = data_store_2;
             loop {
                 let cx = rx.recv().await.unwrap();
                 match &cx.msg {
@@ -187,7 +190,10 @@ impl Bot {
                         log::error!("untreated message kind: {:?}", msg.raw())
                     }
                 }
-                let gcx = GuardContext { message: &cx.msg };
+                let gcx = GuardContext {
+                    data_store: &data_store,
+                    message: &cx.msg,
+                };
                 let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)) else {
                     continue;
                 };

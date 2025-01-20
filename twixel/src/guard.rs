@@ -1,19 +1,24 @@
 #![allow(unused)]
 
+use std::sync::Arc;
+
 use twixel_core::{
     irc_message::{tags::OwnedTag, AnySemantic},
+    user::ChannelRoles,
     IrcCommand, IrcMessage,
 };
 
+use crate::bot::BotData;
+
 pub struct GuardContext<'a> {
-    // pub channel_info: &'a ChannelInfo,
+    pub data_store: &'a BotData,
     pub message: &'a AnySemantic<'a>,
 }
 
 impl<'a> GuardContext<'a> {
-    // pub fn channel_info(&self) -> &'a ChannelInfo {
-    //     self.channel_info
-    // }
+    pub fn data_store(&'a self) -> &'a BotData {
+        self.data_store
+    }
 
     pub fn message(&self) -> &AnySemantic<'a> {
         self.message
@@ -225,5 +230,26 @@ impl ChannelGuard {
 impl Guard for ChannelGuard {
     fn check(&self, ctx: &GuardContext) -> bool {
         self.channel_id.as_str() == ctx.message().get_tag(OwnedTag::RoomId).unwrap_or_default()
+    }
+}
+
+/// returns true if the sender has any of the roles specified
+pub struct RoleGuard {
+    roles: ChannelRoles,
+}
+
+impl RoleGuard {
+    pub fn new(roles: ChannelRoles) -> Self {
+        Self { roles }
+    }
+}
+
+impl Guard for RoleGuard {
+    fn check(&self, ctx: &GuardContext) -> bool {
+        let AnySemantic::PrivMsg(msg) = ctx.message else {
+            return false;
+        };
+
+        self.roles.intersects(msg.sender_roles())
     }
 }

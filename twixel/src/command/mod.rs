@@ -1,17 +1,20 @@
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, sync::Arc};
 
-use twixel_core::{irc_message::AnySemantic, IrcCommand};
+use guard::CommandGuard;
+use twixel_core::irc_message::AnySemantic;
 
 use crate::{
     bot::{BotCommand, BotData},
     guard::{AndGuard, Guard, GuardContext, OrGuard},
 };
 
+pub mod guard;
+
 pub struct CommandContext<T: Send> {
     pub msg: AnySemantic<'static>,
     pub connection_idx: usize,
     pub bot_tx: tokio::sync::mpsc::Sender<T>,
-    pub data_store: BotData,
+    pub data_store: Arc<BotData>,
 }
 
 pub trait CommandHandler {
@@ -71,40 +74,6 @@ impl CommandHandler for StaticMessageHandler {
     }
 }
 
-pub struct CommandGuard {
-    names: Vec<String>,
-    prefix: String,
-}
-
-impl CommandGuard {
-    pub fn new(names: Vec<String>, prefix: impl Into<String>) -> Self {
-        Self {
-            names,
-            prefix: prefix.into(),
-        }
-    }
-}
-
-impl Guard for CommandGuard {
-    fn check(&self, ctx: &GuardContext) -> bool {
-        if ctx.message().get_command() != IrcCommand::PrivMsg {
-            return false;
-        }
-        if let AnySemantic::PrivMsg(msg) = ctx.message {
-            let text = msg.message_text();
-            let Some(first_word) = text.split_ascii_whitespace().next() else {
-                return false;
-            };
-            let Some((prefix, cmd)) = first_word.split_at_checked(1) else {
-                return false;
-            };
-            prefix == self.prefix && self.names.iter().any(|name| name == cmd)
-        } else {
-            false
-        }
-    }
-}
-
 pub struct Command {
     guard: Box<dyn Guard + Send + Sync>,
     pub handler: Box<dyn CommandHandler + Send + Sync>,
@@ -144,10 +113,7 @@ impl CommandBuilder<CommandGuard> {
     ) -> Self {
         Self {
             handler: Box::new(handler),
-            guard: CommandGuard {
-                names,
-                prefix: prefix.into(),
-            },
+            guard: CommandGuard::new(names, prefix),
         }
     }
 }
