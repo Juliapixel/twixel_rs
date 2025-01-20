@@ -62,6 +62,15 @@ macro_rules! impl_semantic {
                     }
                 }
             }
+
+            impl<'a> $cmd<'a> {
+                pub fn from_any(any: AnySemantic<'a>) -> Option<Self> {
+                    match any {
+                        AnySemantic::$cmd(c) => Some(c),
+                        _ => None
+                    }
+                }
+            }
         )+
 
         /// enum containing all semantic wrappers around [IrcMessage](super::message::IrcMessage)
