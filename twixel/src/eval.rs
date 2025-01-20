@@ -189,7 +189,7 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
     globals
         .set(
             "send",
-            Func::new(AsyncJsClosure(move |mut msg: String| {
+            Func::new(AsyncJsClosure(move |msg: String| {
                 let src = src_clone.clone();
                 let tx = tx_clone.clone();
                 async move {
