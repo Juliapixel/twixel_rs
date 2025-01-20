@@ -13,7 +13,7 @@ use twixel_core::irc_message::tags::OwnedTag;
 
 use crate::{
     bot::BotCommand,
-    command::{CommandContext, CommandHandler},
+    command::{CommandContext, CommandHandler}, util::sanitize_output,
 };
 
 pub struct EvalHandler {
@@ -121,7 +121,6 @@ fn rquickjs_err_to_pretty(err: rquickjs::Error, ctx: &Ctx) -> String {
         .unwrap_or_else(|| err.to_string())
 }
 
-// #[async_recursion::async_recursion(?Send)]
 fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
     Box::pin(async {
         let ctx = val.ctx().clone();
@@ -132,12 +131,14 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
             | Type::Bool
             | Type::Int
             | Type::Float
-            | Type::String
             | Type::Function
             | Type::BigInt
             | Type::Constructor
             | Type::Symbol
-            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap(),
+            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val).map(|i| i.0 ).unwrap(),
+            Type::String => {
+                val.as_string().map(|i| format!("\"{}\"", i.to_string().unwrap_or("invalid UTF-8 string".into()))).unwrap()
+            }
             Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => ctx
                 .json_stringify(val)
                 .and_then(|i| i.map(|s| s.to_string()).unwrap())
@@ -181,7 +182,7 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
     globals
         .set(
             "send",
-            Func::new(AsyncJsClosure(move |msg: String| {
+            Func::new(AsyncJsClosure(move |mut msg: String| {
                 let src = src_clone.clone();
                 let tx = tx_clone.clone();
                 async move {
@@ -199,7 +200,7 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
 
     globals.set("fetch", js_fetch).unwrap();
 
-    let out: String = match ctx.eval_promise(code) {
+    let mut out: String = match ctx.eval_promise(code) {
         Ok(p) => {
             let val = p.into_future::<Value>().await;
 
@@ -210,6 +211,8 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
         }
         Err(e) => rquickjs_err_to_pretty(e, &ctx),
     };
+
+    sanitize_output(&mut out);
 
     cx.bot_tx
         .send(BotCommand::SendMessage {
