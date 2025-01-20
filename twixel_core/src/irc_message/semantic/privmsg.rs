@@ -65,10 +65,14 @@ impl PrivMsg<'_> {
         }
     }
 
+    /// message ID to be used in the ReplyParentMsgId tag when replying
+    pub fn reply_to_id(&self) -> Option<&str> {
+        self.get_tag(OwnedTag::ReplyThreadParentMsgId)
+            .or_else(|| self.get_tag(OwnedTag::Id))
+    }
+
     pub fn reply_to(&self, msg: &str) -> MessageBuilder<'_> {
-        let reply_id = self
-            .get_tag(OwnedTag::ReplyThreadParentMsgId)
-            .or_else(|| self.get_tag(OwnedTag::Id));
+        let reply_id = self.reply_to_id();
 
         let builder = MessageBuilder::privmsg(self.channel_login(), msg);
 

@@ -3,8 +3,11 @@ use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
 use config::CONFIG;
 use futures::TryFutureExt;
-use guard::UserGuard;
-use twixel_core::irc_message::AnySemantic;
+use guard::{RoleGuard, UserGuard};
+use twixel_core::{
+    irc_message::{tags::OwnedTag, AnySemantic},
+    user::ChannelRoles,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 mod anymap;
@@ -39,8 +42,10 @@ async fn main() -> Result<(), anyhow::Error> {
                 .build(),
         )
         .add_command(
-            CommandBuilder::new(wrap_fn(test_data), vec!["testdata".into()], "%")
-                .and(UserGuard::allow([JULIA_ID]))
+            CommandBuilder::new(wrap_fn(mod_only), vec!["modonly".into()], "%")
+                .and(RoleGuard::new(
+                    ChannelRoles::Moderator | ChannelRoles::Broadcaster,
+                ))
                 .build(),
         )
         .add_command(
@@ -54,9 +59,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 vec!["eval".into(), "js".into()],
                 "%",
             )
-            .and(
-                UserGuard::allow([JULIA_ID, "457260003", "275204234"])
-            )
+            .and(UserGuard::allow([JULIA_ID, "457260003", "275204234"]))
             .build(),
         )
         .add_command(
@@ -86,22 +89,21 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn test_data(cx: CommandContext<BotCommand>) {
+async fn mod_only(cx: CommandContext<BotCommand>) {
     let AnySemantic::PrivMsg(msg) = cx.msg else {
         return;
     };
 
-    let Some(data) = cx.data_store.get::<String>() else {
-        log::error!("FAILED TO GET DATA FROM BOT STORE");
-        return;
+    let user_name = msg.get_tag(OwnedTag::DisplayName).unwrap();
+
+    let reply = if msg.sender_roles().intersects(ChannelRoles::Broadcaster) {
+        format!("@{user_name} is the broadcaster wowie !!!")
+    } else {
+        format!("@{user_name} is a mod wowie !!!")
     };
 
     cx.bot_tx
-        .send(BotCommand::SendMessage {
-            channel_login: msg.channel_login().into(),
-            message: data.clone(),
-            reply_id: None,
-        })
+        .send(BotCommand::respond(msg, reply, false))
         .await
         .unwrap();
 }

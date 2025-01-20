@@ -2,7 +2,7 @@ use std::{any::Any, sync::Arc};
 
 use futures::StreamExt;
 use twixel_core::{
-    irc_message::{tags::OwnedTag, AnySemantic},
+    irc_message::{tags::OwnedTag, AnySemantic, PrivMsg},
     Auth, ConnectionPool, MessageBuilder,
 };
 
@@ -56,6 +56,22 @@ pub enum BotCommand {
     Reconnect(usize),
     JoinChannel(String),
     PartChannel(String),
+}
+
+impl BotCommand {
+    pub fn respond(msg: PrivMsg, response: String, reply: bool) -> Self {
+        let reply_id = if reply {
+            msg.reply_to_id().map(|s| s.to_owned())
+        } else {
+            None
+        };
+
+        Self::SendMessage {
+            channel_login: msg.channel_login().into(),
+            message: response,
+            reply_id,
+        }
+    }
 }
 
 const CMD_CHANNEL_SIZE: usize = 128;
