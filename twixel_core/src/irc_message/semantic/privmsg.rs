@@ -1,4 +1,4 @@
-use crate::{irc_message::tags::OwnedTag, MessageBuilder};
+use crate::{irc_message::tags::OwnedTag, user::ChannelRoles, MessageBuilder};
 
 use super::{util::msg_from_param, PrivMsg};
 
@@ -10,6 +10,35 @@ impl PrivMsg<'_> {
             .get_param(1)
             .expect("no message in PrivMsg elisWot");
         msg_from_param(msg_param)
+    }
+
+    pub fn sender_roles(&self) -> ChannelRoles {
+        let mut roles = ChannelRoles::empty();
+
+        roles.set(
+            ChannelRoles::Vip,
+            self.get_tag(OwnedTag::Vip)
+                .map(|t| t == "1")
+                .unwrap_or(false),
+        );
+        roles.set(
+            ChannelRoles::Moderator,
+            self.get_tag(OwnedTag::Mod)
+                .map(|t| t == "1")
+                .unwrap_or(false),
+        );
+        roles.set(
+            ChannelRoles::Subscriber,
+            self.get_tag(OwnedTag::Subscriber)
+                .map(|t| t == "1")
+                .unwrap_or(false),
+        );
+        roles.set(
+            ChannelRoles::Broadcaster,
+            self.badges().any(|(k, _v)| k == "broadcaster"),
+        );
+
+        roles
     }
 
     pub fn sender_login(&self) -> Option<&str> {
