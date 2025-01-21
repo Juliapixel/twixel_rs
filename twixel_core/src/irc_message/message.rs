@@ -54,8 +54,6 @@ impl<'a> IrcMessage<'a> {
     }
 
     pub fn badges(&'a self) -> impl Iterator<Item = (&'a str, &'a str)> {
-        let badges = self.get_tag(OwnedTag::Badges);
-
         self.tags
             .as_ref()
             .and_then(|t| t.get_value(&self.raw, OwnedTag::Badges).map(|s| (t, s)))

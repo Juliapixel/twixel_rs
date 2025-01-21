@@ -316,30 +316,3 @@ impl<'a> Iterator for TagsIter<'a> {
             .map(|(rt, range)| (rt.to_owned(self.src), &self.src[range.clone()]))
     }
 }
-
-// TODO: move this somewhere more adequate
-#[derive(Debug, Default)]
-pub struct Badge {
-    name: String,
-    version: i32,
-}
-
-#[derive(Debug)]
-pub enum SubTier {
-    Prime,
-    Tier1,
-    Tier2,
-    Tier3,
-}
-
-impl From<&str> for SubTier {
-    fn from(value: &str) -> Self {
-        match value {
-            "1000" => Self::Tier1,
-            "2000" => Self::Tier2,
-            "3000" => Self::Tier3,
-            "Prime" => Self::Prime,
-            _ => Self::Tier1,
-        }
-    }
-}
