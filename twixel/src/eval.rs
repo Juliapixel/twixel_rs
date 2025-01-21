@@ -1,4 +1,4 @@
-use std::{sync::LazyLock, time::Duration};
+use std::{pin::Pin, sync::LazyLock, time::Duration};
 
 use either::Either;
 use futures::future::LocalBoxFuture;
@@ -18,6 +18,7 @@ use crate::{
     util::sanitize_output,
 };
 
+#[derive(Clone)]
 pub struct EvalHandler {
     cx_sender:
         tokio::sync::mpsc::Sender<CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>>,
@@ -34,11 +35,15 @@ impl CommandHandler for EvalHandler {
     fn handle(
         &self,
         cx: CommandContext<Either<PrivMsg, Whisper>>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + Sync>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = ()>>> {
         let tx = self.cx_sender.clone();
         Box::pin(async move {
             tx.send(cx).await.unwrap();
         })
+    }
+
+    fn clone_boxed(&self) -> Box<dyn CommandHandler + Send> {
+        Box::new(self.clone())
     }
 }
 

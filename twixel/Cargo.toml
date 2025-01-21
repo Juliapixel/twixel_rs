@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+async-channel = "2.3.1"
 chrono = "0.4.39"
 clap = { version = "4.5.26", features = ["derive", "env"] }
 config = "0.15.6"
@@ -20,8 +21,10 @@ parking_lot = "0.12.3"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.135"
 smart-default = "0.7.1"
+sqlx = { version = "0.8.3", features = ["chrono", "derive", "json", "macros", "migrate", "runtime-tokio", "sqlite"], default-features = false }
 thiserror = "2.0.11"
 tokio = { version = "1.43.0", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["rt"] }
 twixel_core = { path = "../twixel_core", features = ["rustls", "chrono"] }
 unicode-segmentation = "1.12.0"
 

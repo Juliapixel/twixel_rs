@@ -2,6 +2,7 @@ use twixel_core::irc_message::AnySemantic;
 
 use crate::guard::{Guard, GuardContext};
 
+#[derive(Clone)]
 pub struct CommandGuard {
     names: Vec<String>,
     prefix: String,
@@ -30,5 +31,9 @@ impl Guard for CommandGuard {
         } else {
             false
         }
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(self.clone())
     }
 }

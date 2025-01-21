@@ -3,3 +3,6 @@ target/
 Cross.toml
 .env
 config.toml
+*.sqlite
+*.sqlite3
+*.db

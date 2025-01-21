@@ -9,6 +9,7 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(get_config);
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub twitch: Twitch,
+    pub database: Database,
 }
 
 #[derive(Debug, Deserialize)]

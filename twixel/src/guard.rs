@@ -26,8 +26,10 @@ impl<'a> GuardContext<'a> {
     }
 }
 
-pub trait Guard {
+pub trait Guard: Send + 'static {
     fn check(&self, ctx: &GuardContext) -> bool;
+
+    fn clone_boxed(&self) -> Box<dyn Guard>;
 
     fn and<G: Guard>(self, rhs: G) -> AndGuard<Self, G>
     where
@@ -51,23 +53,39 @@ pub trait Guard {
     }
 }
 
+#[derive(Clone)]
 pub struct AndGuard<G1: Guard + Sized, G2: Guard + Sized> {
     lhs: G1,
     rhs: G2,
 }
 
-impl<G1: Guard, G2: Guard> Guard for AndGuard<G1, G2> {
+impl<G1: Guard + Clone, G2: Guard + Clone> Guard for AndGuard<G1, G2> {
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self {
+            lhs: self.lhs.clone(),
+            rhs: self.rhs.clone(),
+        })
+    }
+
     fn check(&self, ctx: &GuardContext) -> bool {
         self.lhs.check(ctx) && self.rhs.check(ctx)
     }
 }
 
+#[derive(Clone)]
 pub struct OrGuard<G1: Guard + Sized, G2: Guard + Sized> {
     lhs: G1,
     rhs: G2,
 }
 
-impl<G: Guard, G2: Guard> Guard for OrGuard<G, G2> {
+impl<G: Guard + Clone, G2: Guard + Clone> Guard for OrGuard<G, G2> {
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self {
+            lhs: self.lhs.clone(),
+            rhs: self.rhs.clone(),
+        })
+    }
+
     fn check(&self, ctx: &GuardContext) -> bool {
         self.lhs.check(ctx) || self.rhs.check(ctx)
     }
@@ -76,18 +94,27 @@ impl<G: Guard, G2: Guard> Guard for OrGuard<G, G2> {
 /// Inverts the result of the inner guard
 pub struct NotGuard<G: Guard>(G);
 
-impl<G: Guard> Guard for NotGuard<G> {
+impl<G: Guard + Clone> Guard for NotGuard<G> {
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self(self.0.clone()))
+    }
+
     fn check(&self, ctx: &GuardContext) -> bool {
         !self.0.check(ctx)
     }
 }
 
 /// Always returns true
+#[derive(Clone)]
 pub struct NoOpGuard;
 
 impl Guard for NoOpGuard {
     fn check(&self, _ctx: &GuardContext) -> bool {
         true
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self)
     }
 }
 
@@ -111,6 +138,12 @@ impl Guard for AllGuard {
             return true;
         }
         self.guards.iter().all(|g| g.check(ctx))
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self {
+            guards: self.guards.iter().map(|g| (*g).clone_boxed()).collect(),
+        })
     }
 }
 
@@ -145,6 +178,12 @@ impl Guard for AnyGuard {
             return true;
         }
         self.guards.iter().any(|g| g.check(ctx))
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self {
+            guards: self.guards.iter().map(|g| (*g).clone_boxed()).collect(),
+        })
     }
 }
 
@@ -181,9 +220,17 @@ impl Guard for CooldownGuard {
             true
         }
     }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(Self {
+            cooldown: self.cooldown,
+            last_used: (*self.last_used.lock()).into(),
+        })
+    }
 }
 
 /// allows or forbids users based on their twitch ID
+#[derive(Clone)]
 pub struct UserGuard {
     user_ids: HashSet<String>,
 }
@@ -212,9 +259,14 @@ impl Guard for UserGuard {
             .map(|t| self.user_ids.contains(t))
             .unwrap_or(false)
     }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(self.clone())
+    }
 }
 
 /// allows or forbids channels based on their twitch ID
+#[derive(Clone)]
 pub struct ChannelGuard {
     channel_ids: HashSet<String>,
 }
@@ -243,9 +295,14 @@ impl Guard for ChannelGuard {
             .map(|t| self.channel_ids.contains(t))
             .unwrap_or(false)
     }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(self.clone())
+    }
 }
 
 /// returns true if the sender has any of the roles specified
+#[derive(Clone, Copy)]
 pub struct RoleGuard {
     roles: ChannelRoles,
 }
@@ -263,5 +320,9 @@ impl Guard for RoleGuard {
         };
 
         self.roles.intersects(msg.sender_roles())
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(*self)
     }
 }

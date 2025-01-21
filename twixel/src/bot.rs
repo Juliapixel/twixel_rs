@@ -112,8 +112,8 @@ impl Bot {
     }
 
     pub async fn run(mut self) {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(CMD_CHANNEL_SIZE);
-        let cmds: Vec<Arc<Command>> = self.commands.into_iter().map(Into::into).collect();
+        let (tx, mut rx) = async_channel::bounded(CMD_CHANNEL_SIZE);
+        // let cmds: Arc<[Command]> = self.commands.into_iter().map(Into::into).collect();
         let data_store = Arc::new(self.data);
         let data_store_2 = Arc::clone(&data_store);
         let receiver = tokio::spawn(async move {
@@ -171,96 +171,100 @@ impl Bot {
                 }
             }
         });
-        let cmd_handler = tokio::spawn(async move {
-            let cmds = cmds;
-            let data_store = data_store_2;
-            loop {
-                let cx = rx.recv().await.unwrap();
-                match &cx.msg {
-                    AnySemantic::Notice(msg) => {
-                        match msg.kind() {
-                            Some(Ok(k)) => log::info!("received notice of kind: {k}"),
-                            Some(Err(_)) => log::error!(
-                                "unknown notice kind: {}",
-                                msg.get_tag(OwnedTag::MsgId).unwrap()
-                            ),
-                            None => log::warn!("NOTICE message had no kind"),
-                        };
-                        continue;
-                    }
-                    AnySemantic::Ping(msg) => {
-                        cx.bot_tx
-                            .send(BotCommand::SendRawIrc(
-                                msg.respond().to_owned(),
-                                cx.connection_idx,
-                            ))
-                            .await
-                            .unwrap();
-                        continue;
-                    }
-                    AnySemantic::AuthSuccessful(_msg) => {
-                        log::info!("auth successful");
-                        continue;
-                    }
-                    AnySemantic::Reconnect(_msg) => {
-                        cx.bot_tx
-                            .send(BotCommand::Reconnect(cx.connection_idx))
-                            .await
-                            .unwrap();
-                        continue;
-                    }
-                    AnySemantic::PrivMsg(_msg) => (),
-                    AnySemantic::Useless(_msg) => continue,
-                    AnySemantic::UserState(msg) => {
-                        log::debug!("received userstate from irc: {:?}", msg.roles());
-                        continue;
-                    }
-                    msg => {
-                        log::warn!("untreated message kind: {:?}", msg.raw());
-                        continue;
-                    }
-                }
-                let gcx = GuardContext {
-                    data_store: &data_store,
-                    message: &cx.msg,
+
+        let local_pool = tokio_util::task::LocalPoolHandle::new(
+            tokio::runtime::Handle::current().metrics().num_workers(),
+        );
+
+        for _i in 0..local_pool.num_threads() {
+            let cmds = self.commands.clone();
+            let rx = rx.clone();
+
+            local_pool.spawn_pinned(move || bot_worker(rx, cmds));
+        }
+
+        if let Err(e) = receiver.await {
+            log::error!("{e}");
+        }
+    }
+}
+
+async fn bot_worker(
+    rx: async_channel::Receiver<CommandContext<AnySemantic<'static>>>,
+    cmds: Vec<Command>,
+) {
+    while let Ok(cx) = rx.recv().await {
+        match &cx.msg {
+            AnySemantic::Notice(msg) => {
+                match msg.kind() {
+                    Some(Ok(k)) => log::info!("received notice of kind: {k}"),
+                    Some(Err(_)) => log::error!(
+                        "unknown notice kind: {}",
+                        msg.get_tag(OwnedTag::MsgId).unwrap()
+                    ),
+                    None => log::warn!("NOTICE message had no kind"),
                 };
-                let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)).cloned() else {
-                    continue;
-                };
-                match cx.msg {
-                    AnySemantic::PrivMsg(msg) => {
-                        tokio::spawn(async move {
-                            cmd.handle(CommandContext {
-                                msg: Either::Left(msg),
-                                connection_idx: cx.connection_idx,
-                                bot_tx: cx.bot_tx,
-                                data_store: cx.data_store,
-                            })
-                            .await
-                        });
-                    }
-                    AnySemantic::Whisper(msg) => {
-                        tokio::spawn(async move {
-                            cmd.handle(CommandContext {
-                                msg: Either::Right(msg),
-                                connection_idx: cx.connection_idx,
-                                bot_tx: cx.bot_tx,
-                                data_store: cx.data_store,
-                            })
-                            .await
-                        });
-                    }
-                    _ => (),
-                };
+                continue;
             }
-        });
-        tokio::select! {
-            Err(e) = cmd_handler => {
-                log::error!("{e}")
-            },
-            Err(e) = receiver => {
-                log::error!("{e}")
-            },
+            AnySemantic::Ping(msg) => {
+                cx.bot_tx
+                    .send(BotCommand::SendRawIrc(
+                        msg.respond().to_owned(),
+                        cx.connection_idx,
+                    ))
+                    .await
+                    .unwrap();
+                continue;
+            }
+            AnySemantic::AuthSuccessful(_msg) => {
+                log::info!("auth successful");
+                continue;
+            }
+            AnySemantic::Reconnect(_msg) => {
+                cx.bot_tx
+                    .send(BotCommand::Reconnect(cx.connection_idx))
+                    .await
+                    .unwrap();
+                continue;
+            }
+            AnySemantic::PrivMsg(_msg) => (),
+            AnySemantic::Useless(_msg) => continue,
+            AnySemantic::UserState(msg) => {
+                log::debug!("received userstate from irc: {:?}", msg.roles());
+                continue;
+            }
+            msg => {
+                log::warn!("untreated message kind: {:?}", msg.raw());
+                continue;
+            }
+        }
+        let gcx = GuardContext {
+            data_store: &Default::default(),
+            message: &cx.msg,
+        };
+        let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)).cloned() else {
+            continue;
+        };
+        match cx.msg {
+            AnySemantic::PrivMsg(msg) => {
+                cmd.handle(CommandContext {
+                    msg: Either::Left(msg),
+                    connection_idx: cx.connection_idx,
+                    bot_tx: cx.bot_tx,
+                    data_store: cx.data_store,
+                })
+                .await;
+            }
+            AnySemantic::Whisper(msg) => {
+                cmd.handle(CommandContext {
+                    msg: Either::Right(msg),
+                    connection_idx: cx.connection_idx,
+                    bot_tx: cx.bot_tx,
+                    data_store: cx.data_store,
+                })
+                .await;
+            }
+            _ => (),
         };
     }
 }
