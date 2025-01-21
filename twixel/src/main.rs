@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bot::Bot;
 use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, StaticMessageHandler};
-use commands::{cat_fact, join, part, sql, strdbg};
+use commands::{cat_fact, join, part, sql, strdbg, suggest};
 use config::CONFIG;
 use guard::UserGuard;
 use sqlx::sqlite::SqliteConnectOptions;
@@ -50,6 +50,11 @@ async fn main() -> Result<(), anyhow::Error> {
     .await
     .expect("failed to create SQLITE DB pool");
 
+    sqlx::migrate!("./migrations")
+        .run(&db)
+        .await
+        .expect("failed to run migrations");
+
     let bot = Bot::new(CONFIG.twitch.login.clone(), CONFIG.twitch.token.clone())
         .await
         .add_channels(ARGS.channels.iter().map(|s| s.as_str()))
@@ -60,11 +65,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 .and(UserGuard::allow([JULIA_ID]))
                 .build(),
         )
-        .add_command(
-            CommandBuilder::new(wrap_fn(sql), vec!["sql".into()], "%")
-                .and(UserGuard::allow([JULIA_ID]))
-                .build(),
-        )
+        .add_command(CommandBuilder::new(wrap_fn(sql), vec!["sql".into()], "%").build())
+        .add_command(CommandBuilder::new(wrap_fn(suggest), vec!["suggest".into()], "%").build())
         .add_command(
             CommandBuilder::new(wrap_fn(part), vec!["part".into(), "leave".into()], "%")
                 .and(UserGuard::allow([JULIA_ID]))
@@ -85,24 +87,20 @@ async fn main() -> Result<(), anyhow::Error> {
                 .build(),
         )
         .add_command(Command::new(
-            Box::new(StaticMessageHandler {
+            StaticMessageHandler {
                 msg: "idk bro figure it out".into(),
-            }),
+            },
             vec!["help".into(), "commands".into()],
             "%",
         ))
         .add_command(Command::new(
-            Box::new(StaticMessageHandler {
+            StaticMessageHandler {
                 msg: "pong! :3c".into(),
-            }),
+            },
             vec!["ping".into()],
             "%",
         ))
-        .add_command(Command::new(
-            Box::new(wrap_fn(cat_fact)),
-            vec!["catfact".into()],
-            "%",
-        ));
+        .add_command(Command::new(wrap_fn(cat_fact), vec!["catfact".into()], "%"));
 
     log::info!("twixel bot started");
 

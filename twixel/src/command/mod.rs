@@ -105,12 +105,12 @@ impl Clone for Command {
 
 impl Command {
     pub fn new(
-        handler: Box<dyn CommandHandler + Send>,
+        handler: impl CommandHandler + Send,
         names: Vec<String>,
         prefix: impl Into<String>,
     ) -> Self {
         Self {
-            handler,
+            handler: Box::new(handler),
             guard: Box::new(CommandGuard::new(names, prefix.into())),
         }
     }
