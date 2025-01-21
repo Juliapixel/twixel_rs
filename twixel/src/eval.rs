@@ -9,7 +9,7 @@ use rquickjs::{
     String as JsString, Type, Value,
 };
 use tokio::task::LocalSet;
-use twixel_core::irc_message::tags::OwnedTag;
+use twixel_core::irc_message::{tags::OwnedTag, PrivMsg};
 
 use crate::{
     bot::BotCommand,
@@ -43,7 +43,7 @@ impl CommandHandler for EvalHandler {
 const MAX_EVAL_DURATION: Duration = Duration::from_secs(5);
 
 fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext<BotCommand>> {
-    let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<CommandContext<BotCommand>>(16);
 
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -158,7 +158,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
     })
 }
 
-async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
+async fn eval<'js>(ctx: Ctx<'js>, cx: CommandContext<BotCommand>) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
     let Some(code) = cx
         .msg
@@ -169,19 +169,15 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
         return;
     };
 
-    let Some(msg) = cx
-        .msg
-        .get_tag(OwnedTag::ReplyParentMsgBody)
-        .or(cx.msg.get_param(1).map(|s| s.split_at(1).1))
-        .map(|s| s.to_owned())
-    else {
-        return;
-    };
-
     let globals = ctx.globals();
 
     globals.remove("eval").unwrap();
-    globals.set("msg", msg).unwrap();
+
+    let msg = PrivMsg::from_any(cx.msg);
+
+    let js_ctx = msg.map(|m| JsContext::new(m));
+
+    globals.set("context", js_ctx).unwrap();
 
     let tx_clone = cx.bot_tx.clone();
     let src_clone = source_channel.clone();
@@ -231,6 +227,33 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<BotCommand>) {
         .unwrap();
 }
 
+struct JsContext {
+    msg: String,
+    user_login: Option<String>,
+    user_id: Option<String>,
+}
+
+impl<'js> IntoJs<'js> for JsContext {
+    fn into_js(self, ctx: &Ctx<'js>) -> rquickjs::Result<Value<'js>> {
+        let out = Object::new(ctx.clone())?;
+
+        out.set("msg", self.msg)?;
+        out.set("user_login", self.user_login.as_deref())?;
+        out.set("user_id", self.user_id.as_deref())?;
+
+        Ok(out.into_value())
+    }
+}
+
+impl JsContext {
+    fn new(msg: PrivMsg) -> Self {
+        Self {
+            msg: msg.message_text().to_owned(),
+            user_login: msg.sender_login().map(|s| s.to_owned()),
+            user_id: msg.sender_id().map(|s| s.to_owned()),
+        }
+    }
+}
 #[derive(smart_default::SmartDefault)]
 struct JsRequestInit {
     body: Option<String>,
