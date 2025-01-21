@@ -60,15 +60,16 @@ fn eval_thread(
                 local_set.spawn_local(async move {
                     loop {
                         let cx = rx.recv().await.unwrap();
+                        log::debug!("received js task");
 
                         tokio::task::spawn_local(async move {
                             let rt = AsyncRuntime::new().unwrap();
 
-                            rt.set_memory_limit(50_000_000).await;
+                            rt.set_memory_limit(5_000_000).await;
                             let start_time = std::time::Instant::now();
 
                             rt.set_interrupt_handler(Some(Box::new(move || {
-                                start_time.elapsed().as_secs() > 5
+                                start_time.elapsed() > MAX_EVAL_DURATION
                             })))
                             .await;
 
@@ -78,8 +79,6 @@ fn eval_thread(
                                 log::debug!("driving new quickjs runtime");
                                 rt.drive().await;
                             });
-
-                            log::debug!("received js task");
 
                             context
                                 .with(|ctx| {
