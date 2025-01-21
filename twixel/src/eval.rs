@@ -161,7 +161,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
     })
 }
 
-async fn eval<'js>(ctx: Ctx<'js>, cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+async fn eval(ctx: Ctx<'_>, cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
     let Some(code) = cx
         .msg
