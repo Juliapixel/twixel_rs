@@ -70,6 +70,12 @@ macro_rules! impl_semantic {
                         _ => None
                     }
                 }
+                pub fn from_any_ref(any: &'a AnySemantic<'a>) -> Option<&'a Self> {
+                    match any {
+                        AnySemantic::$cmd(c) => Some(c),
+                        _ => None
+                    }
+                }
             }
         )+
 
