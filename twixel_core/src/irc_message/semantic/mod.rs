@@ -11,6 +11,8 @@ mod util;
 
 use std::fmt::Display;
 
+use either::Either;
+
 use crate::IrcMessage;
 
 pub trait SemanticIrcMessage<'a>: Sized {
@@ -20,9 +22,43 @@ pub trait SemanticIrcMessage<'a>: Sized {
 
     fn inner(&self) -> &IrcMessage<'a>;
 
-    fn from_message(msg: IrcMessage<'a>) -> Option<Self>
+    #[allow(clippy::result_large_err, reason = "intended")]
+    fn from_message(msg: IrcMessage<'a>) -> Result<Self, IrcMessage<'a>>
     where
         Self: 'a;
+}
+
+impl<'a, L, R> SemanticIrcMessage<'a> for either::Either<L, R>
+where
+    L: SemanticIrcMessage<'a>,
+    R: SemanticIrcMessage<'a>,
+{
+    fn to_inner(self) -> IrcMessage<'a>
+    where
+        Self: 'a,
+    {
+        match self {
+            either::Either::Left(l) => l.to_inner(),
+            either::Either::Right(r) => r.to_inner(),
+        }
+    }
+
+    fn inner(&self) -> &IrcMessage<'a> {
+        match self {
+            either::Either::Left(l) => l.inner(),
+            either::Either::Right(r) => r.inner(),
+        }
+    }
+
+    fn from_message(msg: IrcMessage<'a>) -> Result<Self, IrcMessage<'a>>
+    where
+        Self: 'a,
+    {
+        match L::from_message(msg) {
+            Ok(l) => Ok(Either::Left(l)),
+            Err(m) => R::from_message(m).map(|r| Either::Right(r)),
+        }
+    }
 }
 
 macro_rules! impl_semantic {
@@ -54,11 +90,11 @@ macro_rules! impl_semantic {
                     &self.inner
                 }
 
-                fn from_message(msg: $crate::irc_message::message::IrcMessage<'a>) -> Option<Self> {
+                fn from_message(msg: $crate::irc_message::message::IrcMessage<'a>) -> Result<Self, IrcMessage<'a>> {
                     if msg.get_command() == $crate::irc_message::command::IrcCommand::$cmd {
-                        Some(Self { inner: msg })
+                        Ok(Self { inner: msg })
                     } else {
-                        None
+                        Err(msg)
                     }
                 }
             }
@@ -70,6 +106,7 @@ macro_rules! impl_semantic {
                         _ => None
                     }
                 }
+
                 pub fn from_any_ref(any: &'a AnySemantic<'a>) -> Option<&'a Self> {
                     match any {
                         AnySemantic::$cmd(c) => Some(c),
@@ -117,8 +154,8 @@ macro_rules! impl_semantic {
                 }
             }
 
-            fn from_message(msg: $crate::irc_message::message::IrcMessage<'a>) -> Option<Self> {
-                Some(Self::from(msg))
+            fn from_message(msg: $crate::irc_message::message::IrcMessage<'a>) -> Result<Self, IrcMessage<'a>> {
+                Ok(Self::from(msg))
             }
         }
     };

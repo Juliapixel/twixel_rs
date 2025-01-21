@@ -2,10 +2,11 @@ use bot::{Bot, BotCommand};
 use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, CommandContext, StaticMessageHandler};
 use config::CONFIG;
+use either::Either;
 use futures::TryFutureExt;
 use guard::{RoleGuard, UserGuard};
 use twixel_core::{
-    irc_message::{tags::OwnedTag, AnySemantic},
+    irc_message::{tags::OwnedTag, PrivMsg, Whisper},
     user::ChannelRoles,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -89,8 +90,8 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn mod_only(cx: CommandContext<BotCommand>) {
-    let AnySemantic::PrivMsg(msg) = cx.msg else {
+async fn mod_only(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+    let Either::Left(msg) = cx.msg else {
         return;
     };
 
@@ -108,8 +109,8 @@ async fn mod_only(cx: CommandContext<BotCommand>) {
         .unwrap();
 }
 
-async fn strdbg(cx: CommandContext<BotCommand>) {
-    let AnySemantic::PrivMsg(msg) = cx.msg else {
+async fn strdbg(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+    let Either::Left(msg) = cx.msg else {
         return;
     };
 
@@ -132,8 +133,8 @@ struct CatFact {
     fact: String,
 }
 
-async fn cat_fact(cx: CommandContext<BotCommand>) {
-    let AnySemantic::PrivMsg(msg) = cx.msg else {
+async fn cat_fact(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+    let Either::Left(msg) = cx.msg else {
         return;
     };
 
@@ -151,8 +152,8 @@ async fn cat_fact(cx: CommandContext<BotCommand>) {
         .unwrap();
 }
 
-async fn part(cx: CommandContext<BotCommand>) {
-    let AnySemantic::PrivMsg(msg) = cx.msg else {
+async fn part(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+    let Either::Left(msg) = cx.msg else {
         return;
     };
 
@@ -194,8 +195,8 @@ async fn part(cx: CommandContext<BotCommand>) {
     }
 }
 
-async fn join(cx: CommandContext<BotCommand>) {
-    let AnySemantic::PrivMsg(msg) = cx.msg else {
+async fn join(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+    let Either::Left(msg) = cx.msg else {
         return;
     };
 

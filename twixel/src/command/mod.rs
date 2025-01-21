@@ -1,7 +1,8 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
+use either::Either;
 use guard::CommandGuard;
-use twixel_core::irc_message::AnySemantic;
+use twixel_core::irc_message::{PrivMsg, SemanticIrcMessage, Whisper};
 
 use crate::{
     bot::{BotCommand, BotData},
@@ -10,23 +11,23 @@ use crate::{
 
 pub mod guard;
 
-pub struct CommandContext<T: Send> {
-    pub msg: AnySemantic<'static>,
+pub struct CommandContext<T: SemanticIrcMessage<'static> + 'static> {
+    pub msg: T,
     pub connection_idx: usize,
-    pub bot_tx: tokio::sync::mpsc::Sender<T>,
+    pub bot_tx: tokio::sync::mpsc::Sender<BotCommand>,
     pub data_store: Arc<BotData>,
 }
 
 pub trait CommandHandler {
     fn handle(
         &self,
-        cx: CommandContext<BotCommand>,
+        cx: CommandContext<Either<PrivMsg, Whisper>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
 }
 
 pub fn wrap_fn<F, Fut>(func: F) -> impl CommandHandler
 where
-    F: Fn(CommandContext<BotCommand>) -> Fut,
+    F: Fn(CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) -> Fut,
     Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     WrappedHandler { handler: func }
@@ -38,12 +39,12 @@ struct WrappedHandler<H> {
 
 impl<H, Fut> CommandHandler for WrappedHandler<H>
 where
-    H: Fn(CommandContext<BotCommand>) -> Fut,
+    H: Fn(CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) -> Fut,
     Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     fn handle(
         &self,
-        cx: CommandContext<BotCommand>,
+        cx: CommandContext<Either<PrivMsg, Whisper>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
         Box::pin((self.handler)(cx))
     }
@@ -56,17 +57,13 @@ pub struct StaticMessageHandler {
 impl CommandHandler for StaticMessageHandler {
     fn handle(
         &self,
-        cx: CommandContext<BotCommand>,
+        cx: CommandContext<Either<PrivMsg, Whisper>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
         let reply = self.msg.clone();
         Box::pin(async move {
-            if let AnySemantic::PrivMsg(msg) = cx.msg {
+            if let Either::Left(msg) = cx.msg {
                 cx.bot_tx
-                    .send(BotCommand::SendMessage {
-                        channel_login: msg.channel_login().to_owned(),
-                        message: reply,
-                        reply_id: None,
-                    })
+                    .send(BotCommand::respond(&msg, reply, false))
                     .await
                     .unwrap();
             }
@@ -91,7 +88,7 @@ impl Command {
         }
     }
 
-    pub async fn handle(&self, cx: CommandContext<BotCommand>) {
+    pub async fn handle(&self, cx: CommandContext<Either<PrivMsg<'_>, Whisper<'_>>>) {
         self.handler.handle(cx).await;
     }
 

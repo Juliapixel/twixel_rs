@@ -1,5 +1,6 @@
 use std::{any::Any, sync::Arc};
 
+use either::Either;
 use futures::StreamExt;
 use twixel_core::{
     irc_message::{tags::OwnedTag, AnySemantic, PrivMsg},
@@ -112,7 +113,7 @@ impl Bot {
 
     pub async fn run(mut self) {
         let (tx, mut rx) = tokio::sync::mpsc::channel(CMD_CHANNEL_SIZE);
-        let cmds: Arc<[Command]> = Arc::from(self.commands);
+        let cmds: Vec<Arc<Command>> = self.commands.into_iter().map(Into::into).collect();
         let data_store = Arc::new(self.data);
         let data_store_2 = Arc::clone(&data_store);
         let receiver = tokio::spawn(async move {
@@ -223,10 +224,34 @@ impl Bot {
                     data_store: &data_store,
                     message: &cx.msg,
                 };
-                let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)) else {
+                let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)).cloned() else {
                     continue;
                 };
-                cmd.handle(cx).await;
+                match cx.msg {
+                    AnySemantic::PrivMsg(msg) => {
+                        tokio::spawn(async move {
+                            cmd.handle(CommandContext {
+                                msg: Either::Left(msg),
+                                connection_idx: cx.connection_idx,
+                                bot_tx: cx.bot_tx,
+                                data_store: cx.data_store,
+                            })
+                            .await
+                        });
+                    }
+                    AnySemantic::Whisper(msg) => {
+                        tokio::spawn(async move {
+                            cmd.handle(CommandContext {
+                                msg: Either::Right(msg),
+                                connection_idx: cx.connection_idx,
+                                bot_tx: cx.bot_tx,
+                                data_store: cx.data_store,
+                            })
+                            .await
+                        });
+                    }
+                    _ => (),
+                };
             }
         });
         tokio::select! {

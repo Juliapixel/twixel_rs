@@ -1,5 +1,6 @@
 use std::{sync::LazyLock, time::Duration};
 
+use either::Either;
 use futures::future::LocalBoxFuture;
 use reqwest::header::{HeaderMap, ACCEPT, USER_AGENT};
 use rquickjs::{
@@ -9,7 +10,7 @@ use rquickjs::{
     String as JsString, Type, Value,
 };
 use tokio::task::LocalSet;
-use twixel_core::irc_message::{tags::OwnedTag, PrivMsg};
+use twixel_core::irc_message::{PrivMsg, Whisper};
 
 use crate::{
     bot::BotCommand,
@@ -18,7 +19,8 @@ use crate::{
 };
 
 pub struct EvalHandler {
-    cx_sender: tokio::sync::mpsc::Sender<CommandContext<BotCommand>>,
+    cx_sender:
+        tokio::sync::mpsc::Sender<CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>>,
 }
 
 impl EvalHandler {
@@ -31,7 +33,7 @@ impl EvalHandler {
 impl CommandHandler for EvalHandler {
     fn handle(
         &self,
-        cx: CommandContext<BotCommand>,
+        cx: CommandContext<Either<PrivMsg, Whisper>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + Sync>> {
         let tx = self.cx_sender.clone();
         Box::pin(async move {
@@ -42,8 +44,9 @@ impl CommandHandler for EvalHandler {
 
 const MAX_EVAL_DURATION: Duration = Duration::from_secs(5);
 
-fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext<BotCommand>> {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<CommandContext<BotCommand>>(16);
+fn eval_thread(
+) -> tokio::sync::mpsc::Sender<CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<CommandContext<Either<PrivMsg, Whisper>>>(16);
 
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -158,7 +161,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
     })
 }
 
-async fn eval<'js>(ctx: Ctx<'js>, cx: CommandContext<BotCommand>) {
+async fn eval<'js>(ctx: Ctx<'js>, cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
     let Some(code) = cx
         .msg
@@ -173,7 +176,7 @@ async fn eval<'js>(ctx: Ctx<'js>, cx: CommandContext<BotCommand>) {
 
     globals.remove("eval").unwrap();
 
-    let msg = PrivMsg::from_any(cx.msg);
+    let msg = cx.msg.left();
 
     let js_ctx = msg.map(|m| JsContext::new(m));
 
