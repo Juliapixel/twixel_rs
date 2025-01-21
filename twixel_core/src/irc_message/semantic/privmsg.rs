@@ -42,7 +42,7 @@ impl PrivMsg<'_> {
     }
 
     pub fn sender_login(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::Login)
+        self.get_username()
     }
 
     pub fn sender_id(&self) -> Option<&str> {
