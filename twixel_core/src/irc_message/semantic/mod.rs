@@ -116,7 +116,7 @@ macro_rules! impl_semantic {
             }
         )+
 
-        /// enum containing all semantic wrappers around [IrcMessage](super::message::IrcMessage)
+        /// enum containing all semantic wrappers around [](super::message::IrcMessage)
         pub enum AnySemantic<'a> {
             $($cmd($cmd<'a>)),+
         }
