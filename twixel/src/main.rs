@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bot::Bot;
 use cli::ARGS;
 use command::{wrap_fn, Command, CommandBuilder, StaticMessageHandler};
-use commands::{cat_fact, join, part, sql, strdbg, suggest};
+use commands::{cat_fact, join, part, sql, strdbg, suggest, test};
 use config::CONFIG;
 use guard::UserGuard;
 use sqlx::sqlite::SqliteConnectOptions;
@@ -14,6 +14,7 @@ mod cli;
 mod command;
 mod commands;
 mod config;
+mod db;
 mod eval;
 mod guard;
 mod util;
@@ -66,6 +67,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 .build(),
         )
         .add_command(CommandBuilder::new(wrap_fn(sql), vec!["sql".into()], "%").build())
+        .add_command(CommandBuilder::new(wrap_fn(test), vec!["test".into()], "%").build())
         .add_command(CommandBuilder::new(wrap_fn(suggest), vec!["suggest".into()], "%").build())
         .add_command(
             CommandBuilder::new(wrap_fn(part), vec!["part".into(), "leave".into()], "%")

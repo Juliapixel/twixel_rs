@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS twitch_users (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    twitch_id INTEGER NOT NULL UNIQUE,
+    twitch_id TEXT NOT NULL UNIQUE,
     twitch_login TEXT NOT NULL,
     twitch_display_name TEXT NOT NULL,
-    bot_joined INTEGER
+    bot_joined INTEGER NOT NULL DEFAULT 0
 );
