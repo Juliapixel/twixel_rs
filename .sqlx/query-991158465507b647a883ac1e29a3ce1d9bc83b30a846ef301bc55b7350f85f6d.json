@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            twitch_id,\n            twitch_login,\n            twitch_display_name\n        FROM twitch_users\n        WHERE twitch_id = ?1;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "twitch_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "twitch_login",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "twitch_display_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "991158465507b647a883ac1e29a3ce1d9bc83b30a846ef301bc55b7350f85f6d"
+}
