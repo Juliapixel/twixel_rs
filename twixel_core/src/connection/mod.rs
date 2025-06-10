@@ -197,7 +197,7 @@ impl Connection {
                     out.trim()
                 }
             );
-            socket.send(WsMessage::Text(out)).await?;
+            socket.send(WsMessage::Text(out.into())).await?;
             Ok(())
         } else {
             Err(ConnectionError::NotStarted)
@@ -220,7 +220,7 @@ impl Connection {
                         out.trim()
                     }
                 );
-                socket.feed(WsMessage::Text(out)).await?;
+                socket.feed(WsMessage::Text(out.into())).await?;
             }
             socket.flush().await?;
             Ok(())
@@ -290,7 +290,7 @@ impl<'a> futures_util::Sink<MessageBuilder<'a>> for Connection {
         self.socket
             .as_mut()
             .ok_or(ConnectionError::NotStarted)?
-            .start_send_unpin(WsMessage::Text(item.build()))
+            .start_send_unpin(WsMessage::Text(item.build().into()))
             .map_err(Into::into)
     }
 

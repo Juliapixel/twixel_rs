@@ -22,11 +22,11 @@ impl Auth {
                 MessageBuilder::new(IrcCommand::Nick).add_param(username.as_str()),
             ),
             Self::Anonymous => {
-                let mut rng = rand::thread_rng();
+                let mut rng = rand::rng();
                 (
                     MessageBuilder::new(IrcCommand::Pass).add_param("POGGERS"),
                     MessageBuilder::new(IrcCommand::Nick)
-                        .add_param(format!("justinfan{}", rng.gen_range(1..99999))),
+                        .add_param(format!("justinfan{}", rng.random_range(1..99999))),
                 )
             }
         }

@@ -4,32 +4,32 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.95"
-async-channel = "2.3.1"
-chrono = "0.4.39"
-clap = { version = "4.5.26", features = ["derive", "env", "string"] }
-config = "0.15.6"
-dashmap = "6.1.0"
+anyhow = "1.0"
+async-channel = "2.3"
+chrono = "0.4"
+clap = { version = "4.5", features = ["derive", "env", "string"] }
+config = "0.15"
+dashmap = "6.1"
 dotenvy = "0.15.7"
-either = { version = "1.13.0", features = ["serde"] }
-env_logger = "0.11.6"
-futures = "0.3.31"
-getset = "0.1.5"
-hashbrown = "0.15.2"
-log = "0.4.25"
-owo-colors = "4.1.0"
-parking_lot = "0.12.3"
-rand = "0.9.1"
-regex = "1.11.1"
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
-smart-default = "0.7.1"
-sqlx = { version = "0.8.3", features = ["chrono", "derive", "json", "macros", "migrate", "runtime-tokio", "sqlite"], default-features = false }
-thiserror = "2.0.11"
-tokio = { version = "1.43.0", features = ["full"] }
-tokio-util = { version = "0.7.13", features = ["rt"] }
+either = { version = "1.13", features = ["serde"] }
+env_logger = "0.11"
+futures = "0.3"
+getset = "0.1"
+hashbrown = "0.15"
+log = "0.4"
+owo-colors = "4.1"
+parking_lot = "0.12"
+rand = "0.9"
+regex = "1.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+smart-default = "0.7"
+sqlx = { version = "0.8", features = ["chrono", "derive", "json", "macros", "migrate", "runtime-tokio", "sqlite"], default-features = false }
+thiserror = "2.0"
+tokio = { version = "1.43", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 twixel_core = { path = "../twixel_core", features = ["rustls", "chrono"] }
-unicode-segmentation = "1.12.0"
+unicode-segmentation = "1.12"
 
 [dependencies.reqwest]
 version = "0.12"
@@ -46,9 +46,9 @@ features = [
 ]
 
 [dependencies.rquickjs]
-version = "0.8.1"
+version = "0.9"
 features = ["either", "futures", "macro"]
 
 [target.aarch64-linux-android.dependencies.rquickjs]
-version = "0.8.1"
+version = "0.9"
 features = ["either", "futures", "macro", "bindgen"]
