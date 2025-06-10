@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO twitch_users (\n                user_id,\n                twitch_id,\n                twitch_login,\n                twitch_display_name\n            )\n            VALUES\n            (?1, ?2, ?3, ?4)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "a6495b8e30a3c18c49360619607db94b465cb9a3d803b6abd20560275ea01626"
+}

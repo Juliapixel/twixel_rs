@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO users (\n                creation_ts\n            )\n            VALUES\n            (?1)\n            RETURNING id, creation_ts, role, fish_reminder\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "creation_ts",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "fish_reminder",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "2140b681f6f026a6719dfc88c3c258365f8fcc14706e2226e11ab5341b878dd7"
+}

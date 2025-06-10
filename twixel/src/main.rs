@@ -2,22 +2,22 @@ use std::str::FromStr;
 
 use bot::Bot;
 use cli::ARGS;
-use handler::{Command, CommandBuilder};
-use commands::{bread_fact, cat_fact, join, part, sql, strdbg, suggest, test, argtest};
+use commands::{argtest, bread_fact, cat_fact, join, part, sql, strdbg, suggest, test};
 use config::CONFIG;
 use guard::UserGuard;
+use handler::{Command, CommandBuilder};
 use sqlx::sqlite::SqliteConnectOptions;
 
-use crate::{handler::response::BotResponse};
+use crate::handler::response::BotResponse;
 
 mod anymap;
 mod bot;
 mod cli;
-mod handler;
 mod commands;
 mod config;
 mod eval;
 mod guard;
+mod handler;
 mod util;
 
 const JULIA_ID: &str = "173685614";

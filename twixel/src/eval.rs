@@ -70,9 +70,7 @@ fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext> {
 
                 local_set.spawn_local(async move {
                     loop {
-                        let Some(cx) = rx.recv().await else {
-                            break
-                        };
+                        let Some(cx) = rx.recv().await else { break };
                         log::debug!("received js task");
 
                         tokio::task::spawn_local(async move {

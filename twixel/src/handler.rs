@@ -7,8 +7,8 @@ use twixel_core::irc_message::AnySemantic;
 
 use crate::{
     bot::{BotCommand, BotData},
-    handler::response::{BotResponse, IntoResponse},
     guard::{AndGuard, Guard, GuardContext, OrGuard},
+    handler::response::{BotResponse, IntoResponse},
 };
 
 pub mod extract;

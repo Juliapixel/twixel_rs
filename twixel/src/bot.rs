@@ -3,7 +3,7 @@ use std::{any::Any, sync::Arc};
 use dashmap::DashMap;
 use futures::StreamExt;
 use hashbrown::HashMap;
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use twixel_core::{
     Auth, ConnectionPool, MessageBuilder,
     irc_message::{AnySemantic, PrivMsg, tags::OwnedTag},
@@ -11,8 +11,8 @@ use twixel_core::{
 
 use crate::{
     anymap::AnyMap,
-    handler::{Command, CommandContext, CommandHandler},
     guard::GuardContext,
+    handler::{Command, CommandContext, CommandHandler},
     util::limit_str_at_graphemes,
 };
 
@@ -116,42 +116,51 @@ impl Bot {
     }
 
     /// Returns whether to shut down or not
-    async fn handle_cmd(conn_pool: &mut ConnectionPool, cmd: BotCommand, last_sent_msg: &mut HashMap<String, String>) -> bool {
+    async fn handle_cmd(
+        conn_pool: &mut ConnectionPool,
+        cmd: BotCommand,
+        last_sent_msg: &mut HashMap<String, String>,
+    ) -> bool {
         match cmd {
-            BotCommand::SendMessage { channel_login, mut message, reply_id } => {
+            BotCommand::SendMessage {
+                channel_login,
+                mut message,
+                reply_id,
+            } => {
                 log::debug!("sending {} to {}", &message, &channel_login);
                 if let Some(idx) = conn_pool.get_conn_idx(&channel_login) {
-                    let entry = last_sent_msg.entry_ref(
+                    let entry = last_sent_msg.entry_ref(&channel_login);
+                    entry
+                        .and_modify(|v| {
+                            if v == &message {
+                                message += " \u{e0000}";
+                                *v = message.clone();
+                            } else {
+                                *v = message.clone();
+                            }
+                        })
+                        .or_insert(message.clone());
+                    let msg = MessageBuilder::privmsg(
                         &channel_login,
-                    );
-                    entry.and_modify(|v| { if v == &message {
-                            message += " \u{e0000}";
-                            *v = message.clone();
-                        } else {
-                            *v = message.clone();
-                        }}
-                    ).or_insert(message.clone());
-                    let msg = MessageBuilder::privmsg(&channel_login, limit_str_at_graphemes(&message, 500))
-                            .add_tag(OwnedTag::ReplyParentMsgId, reply_id.unwrap_or_default());
-                    conn_pool.send_to_connection(
-                        msg,
-                        idx
-                    ).await.unwrap();
+                        limit_str_at_graphemes(&message, 500),
+                    )
+                    .add_tag(OwnedTag::ReplyParentMsgId, reply_id.unwrap_or_default());
+                    conn_pool.send_to_connection(msg, idx).await.unwrap();
                 }
-            },
+            }
             BotCommand::SendRawIrc(raw, idx) => {
                 log::debug!("sending {} to connetion {}", raw.command, idx);
                 conn_pool.send_to_connection(raw, idx).await.unwrap();
-            },
+            }
             BotCommand::Reconnect(idx) => {
                 conn_pool.restart_connection(idx).await.unwrap();
-            },
+            }
             BotCommand::JoinChannel(channel) => {
                 conn_pool.join_channel(&channel).await.unwrap();
-            },
+            }
             BotCommand::PartChannel(channel) => {
                 conn_pool.part_channel(&channel).await.unwrap();
-            },
+            }
             BotCommand::Shutdown => {
                 log::info!("shutting down");
                 return true;

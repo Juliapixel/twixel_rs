@@ -199,19 +199,24 @@ impl<T: clap::Parser + Send> Extract for Clap<T> {
         let AnySemantic::PrivMsg(msg) = msg else {
             return ready(Err(None));
         };
-        let segments = msg.message_text()
+        let segments = msg
+            .message_text()
             .split('"')
             .enumerate()
-            .flat_map(|(i, v)| if i % 2 == 0 { v.split_ascii_whitespace().collect::<Vec<_>>() } else { vec![v] });
+            .flat_map(|(i, v)| {
+                if i % 2 == 0 {
+                    v.split_ascii_whitespace().collect::<Vec<_>>()
+                } else {
+                    vec![v]
+                }
+            });
         let Some((cmd_name, _)) = msg.message_text().split_once(" ") else {
             return ready(Err(None));
         };
         let cmd_name = cmd_name.to_string();
-        ready(
-            match T::try_parse_from(segments) {
-                Ok(t) => Ok(Self(t)),
-                Err(e) => Err(Some(e)),
-            },
-        )
+        ready(match T::try_parse_from(segments) {
+            Ok(t) => Ok(Self(t)),
+            Err(e) => Err(Some(e)),
+        })
     }
 }

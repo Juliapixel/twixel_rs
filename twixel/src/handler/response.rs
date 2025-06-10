@@ -90,12 +90,9 @@ impl IntoResponse for clap::Error {
     fn into_response(self) -> Option<BotResponse> {
         if let Some((kind, val)) = self.context().next() {
             if let Some(kind_str) = kind.as_str() {
-                return
-                    format!("| {kind_str}: {val} | use --help for help").into_response();
+                return format!("| {kind_str}: {val} | use --help for help").into_response();
             }
-            if matches!(kind, ContextKind::Usage) {
-
-            }
+            if matches!(kind, ContextKind::Usage) {}
         }
         match self.kind() {
             ErrorKind::InvalidUtf8 => "how did you even send invalid utf8 wtf".into_response(),
