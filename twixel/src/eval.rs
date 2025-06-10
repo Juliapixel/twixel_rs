@@ -1,27 +1,25 @@
 use std::{pin::Pin, sync::LazyLock, time::Duration};
 
-use either::Either;
 use futures::future::LocalBoxFuture;
-use reqwest::header::{HeaderMap, ACCEPT, USER_AGENT};
+use reqwest::header::{ACCEPT, HeaderMap, USER_AGENT};
 use rquickjs::{
-    function::Async as AsyncJsClosure,
-    prelude::{Func, Opt},
     Array, AsyncContext, AsyncRuntime, Coerced, Ctx, FromJs, IntoJs, IteratorJs, Object,
     String as JsString, Type, Value,
+    function::Async as AsyncJsClosure,
+    prelude::{Func, Opt},
 };
 use tokio::task::LocalSet;
-use twixel_core::irc_message::{PrivMsg, Whisper};
+use twixel_core::irc_message::{AnySemantic, PrivMsg};
 
 use crate::{
     bot::BotCommand,
-    command::{CommandContext, CommandHandler},
+    handler::{CommandContext, CommandHandler, response::BotResponse},
     util::sanitize_output,
 };
 
 #[derive(Clone)]
 pub struct EvalHandler {
-    cx_sender:
-        tokio::sync::mpsc::Sender<CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>>,
+    cx_sender: tokio::sync::mpsc::Sender<CommandContext>,
 }
 
 impl EvalHandler {
@@ -31,27 +29,35 @@ impl EvalHandler {
     }
 }
 
-impl CommandHandler for EvalHandler {
-    fn handle(
-        &self,
-        cx: CommandContext<Either<PrivMsg, Whisper>>,
-    ) -> Pin<Box<dyn std::future::Future<Output = ()>>> {
+impl CommandHandler<()> for EvalHandler {
+    type Fut = Pin<Box<dyn std::future::Future<Output = Option<BotResponse>> + Send>>;
+
+    fn handle(&self, cx: CommandContext) -> Self::Fut {
         let tx = self.cx_sender.clone();
         Box::pin(async move {
             tx.send(cx).await.unwrap();
+            None
         })
     }
 
-    fn clone_boxed(&self) -> Box<dyn CommandHandler + Send> {
-        Box::new(self.clone())
+    fn clone_boxed(
+        &self,
+    ) -> Pin<
+        Box<
+            dyn CommandHandler<
+                    (),
+                    Fut = Pin<Box<dyn Future<Output = Option<BotResponse>> + Send + 'static>>,
+                >,
+        >,
+    > {
+        Box::pin(self.clone())
     }
 }
 
 const MAX_EVAL_DURATION: Duration = Duration::from_secs(5);
 
-fn eval_thread(
-) -> tokio::sync::mpsc::Sender<CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>> {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<CommandContext<Either<PrivMsg, Whisper>>>(16);
+fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<CommandContext>(16);
 
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -64,7 +70,9 @@ fn eval_thread(
 
                 local_set.spawn_local(async move {
                     loop {
-                        let cx = rx.recv().await.unwrap();
+                        let Some(cx) = rx.recv().await else {
+                            break
+                        };
                         log::debug!("received js task");
 
                         tokio::task::spawn_local(async move {
@@ -165,7 +173,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
     })
 }
 
-async fn eval(ctx: Ctx<'_>, cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
+async fn eval(ctx: Ctx<'_>, cx: CommandContext) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
     let Some(code) = cx
         .msg
@@ -180,9 +188,11 @@ async fn eval(ctx: Ctx<'_>, cx: CommandContext<Either<PrivMsg<'static>, Whisper<
 
     globals.remove("eval").unwrap();
 
-    let msg = cx.msg.left();
+    let AnySemantic::PrivMsg(msg) = cx.msg else {
+        return;
+    };
 
-    let js_ctx = msg.map(|m| JsContext::new(m));
+    let js_ctx = JsContext::new(msg);
 
     globals.set("context", js_ctx).unwrap();
 

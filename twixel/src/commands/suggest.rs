@@ -1,30 +1,15 @@
-use either::Either;
 use sqlx::{Executor, SqlitePool};
-use twixel_core::irc_message::{PrivMsg, Whisper};
 
-use crate::{bot::BotCommand, command::CommandContext};
+use crate::handler::extract::{Data, MessageText, SenderId};
 
-pub async fn suggest(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
-    let Either::Left(msg) = cx.msg else {
-        return;
-    };
+pub async fn suggest(
+    MessageText(msg): MessageText,
+    SenderId(sender_id): SenderId,
+    Data(pool): Data<SqlitePool>,
+) -> Option<String> {
+    let suggestion = msg.split_once(' ').map(|s| s.1)?;
 
-    let Some(suggestion) = msg.message_text().split_once(' ').map(|s| s.1) else {
-        return;
-    };
-
-    let Some(sender_id) = msg.sender_id() else {
-        log::error!("no sender id in suggest command");
-        return;
-    };
-
-    let mut conn = cx
-        .data_store
-        .get::<SqlitePool>()
-        .unwrap()
-        .acquire()
-        .await
-        .unwrap();
+    let mut conn = pool.acquire().await.unwrap();
 
     let query = sqlx::query(
         "
@@ -38,22 +23,10 @@ pub async fn suggest(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static
     .bind(sender_id);
 
     match conn.execute(query).await {
-        Ok(_) => {
-            cx.bot_tx
-                .send(BotCommand::respond(
-                    &msg,
-                    "suggestion saved successfully!".into(),
-                    false,
-                ))
-                .await
-                .unwrap();
-        }
+        Ok(_) => Some("suggestion saved successfully!".into()),
         Err(err) => {
             log::error!("{err}");
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, err.to_string(), false))
-                .await
-                .unwrap()
+            Some(err.to_string())
         }
     }
 }

@@ -1,19 +1,19 @@
 use std::task::Poll;
 
 use either::Either;
-use futures_util::{future::select_all, FutureExt, Sink, SinkExt, Stream};
+use futures_util::{FutureExt, Sink, SinkExt, Stream, future::select_all};
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use crate::{
     auth::Auth,
-    irc_message::{builder::MessageBuilder, message::IrcMessage, ToIrcMessage},
+    irc_message::{ToIrcMessage, builder::MessageBuilder, message::IrcMessage},
 };
 
-use super::{error::PoolError, Connection};
+use super::{Connection, error::PoolError};
 
-// idk
-const MAX_CHANNELS_PER_CONNECTION: usize = 50;
+// current limit
+const MAX_CHANNELS_PER_CONNECTION: usize = 100;
 
 pub struct ConnectionPool {
     pool: Vec<Connection>,

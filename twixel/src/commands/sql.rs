@@ -1,8 +1,6 @@
-use either::Either;
-use sqlx::{sqlite::SqliteRow, Column, Executor, Row, SqlitePool};
-use twixel_core::irc_message::{PrivMsg, Whisper};
+use sqlx::{Column, Executor, Row, SqlitePool, sqlite::SqliteRow};
 
-use crate::{bot::BotCommand, command::CommandContext};
+use crate::handler::extract::{Data, MessageText};
 
 fn to_json(rows: &[SqliteRow]) -> serde_json::Value {
     let mut out = vec![];
@@ -79,22 +77,10 @@ fn to_json(rows: &[SqliteRow]) -> serde_json::Value {
     serde_json::Value::Array(out)
 }
 
-pub async fn sql(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
-    let Either::Left(msg) = cx.msg else { return };
-
-    let Some((_cmd, query)) = msg.message_text().split_once(' ') else {
-        cx.bot_tx
-            .send(BotCommand::respond(
-                &msg,
-                "bro send a query are u dumb".into(),
-                false,
-            ))
-            .await
-            .unwrap();
-        return;
+pub async fn sql(MessageText(msg): MessageText, Data(pool): Data<SqlitePool>) -> String {
+    let Some((_cmd, query)) = msg.split_once(' ') else {
+        return "bro send a query are u dumb".into();
     };
-
-    let pool = cx.data_store.get::<SqlitePool>().unwrap();
 
     let mut conn = pool.acquire().await.unwrap();
 
@@ -111,21 +97,12 @@ pub async fn sql(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>)
 
             let out = to_json(&r);
 
-            let response = format!(
+            format!(
                 "{} ROWS AFFECTED, took {}ms; {out}",
                 row_count,
                 elapsed.as_millis()
-            );
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, response, false))
-                .await
-                .unwrap();
+            )
         }
-        Err(e) => {
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, e.to_string(), false))
-                .await
-                .unwrap();
-        }
+        Err(e) => e.to_string(),
     }
 }

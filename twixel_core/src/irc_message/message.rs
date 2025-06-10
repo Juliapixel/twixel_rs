@@ -2,8 +2,8 @@ use std::{borrow::Cow, fmt::Display, ops::Range, slice::Iter, str::FromStr};
 
 #[cfg(feature = "serde")]
 use serde::{
-    ser::{SerializeStruct, SerializeStructVariant},
     Serialize,
+    ser::{SerializeStruct, SerializeStructVariant},
 };
 use smallvec::SmallVec;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -11,11 +11,11 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use crate::irc_message::{error::IrcMessageStructureError, prefix::RawPrefix, tags::RawIrcTags};
 
 use super::{
-    command::IrcCommand, error::IrcMessageParseError, iter::IrcMessageParseIter, tags::OwnedTag,
-    ToIrcMessage,
+    ToIrcMessage, command::IrcCommand, error::IrcMessageParseError, iter::IrcMessageParseIter,
+    tags::OwnedTag,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IrcMessage<'a> {
     raw: Cow<'a, str>,
     tags: Option<RawIrcTags>,

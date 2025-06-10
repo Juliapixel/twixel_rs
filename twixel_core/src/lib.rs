@@ -1,3 +1,5 @@
+#![deny(clippy::missing_safety_doc)]
+
 pub mod auth;
 pub mod connection;
 pub mod irc_message;

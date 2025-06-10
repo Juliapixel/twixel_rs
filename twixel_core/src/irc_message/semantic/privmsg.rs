@@ -1,6 +1,6 @@
-use crate::{irc_message::tags::OwnedTag, user::ChannelRoles, MessageBuilder};
+use crate::{MessageBuilder, irc_message::tags::OwnedTag, user::ChannelRoles};
 
-use super::{util::msg_from_param, PrivMsg};
+use super::{PrivMsg, util::msg_from_param};
 
 impl PrivMsg<'_> {
     // TODO: treat repeat message avoiders

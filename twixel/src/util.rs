@@ -1,5 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
+pub mod db;
+
 /// returns a &str that is at most `limit` bytes long
 pub fn limit_str(value: &str, limit: usize) -> &str {
     let boundary = value

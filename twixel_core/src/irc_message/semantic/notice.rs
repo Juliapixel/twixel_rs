@@ -1,6 +1,6 @@
 use crate::irc_message::tags::OwnedTag;
 
-use super::{util::msg_from_param, Notice};
+use super::{Notice, util::msg_from_param};
 
 impl Notice<'_> {
     pub fn message_text(&self) -> &str {

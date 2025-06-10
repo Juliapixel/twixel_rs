@@ -1,6 +1,6 @@
 use crate::irc_message::tags::OwnedTag;
 
-use super::{util::msg_from_param, ClearChat};
+use super::{ClearChat, util::msg_from_param};
 
 pub enum TimeoutDuration {
     Permanent,

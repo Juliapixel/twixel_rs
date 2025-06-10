@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use hashbrown::HashSet;
 use twixel_core::{
-    irc_message::{tags::OwnedTag, AnySemantic},
-    user::ChannelRoles,
     IrcCommand, IrcMessage,
+    irc_message::{AnySemantic, tags::OwnedTag},
+    user::ChannelRoles,
 };
 
 use crate::bot::BotData;
@@ -92,6 +92,7 @@ impl<G: Guard + Clone, G2: Guard + Clone> Guard for OrGuard<G, G2> {
 }
 
 /// Inverts the result of the inner guard
+#[derive(Clone)]
 pub struct NotGuard<G: Guard>(G);
 
 impl<G: Guard + Clone> Guard for NotGuard<G> {
@@ -118,116 +119,79 @@ impl Guard for NoOpGuard {
     }
 }
 
-pub struct AllGuard {
-    guards: Vec<Box<dyn Guard + 'static>>,
-}
+// pub struct AllGuard {
+//     guards: Vec<Box<dyn Guard + 'static>>,
+// }
 
-impl AllGuard {
-    pub fn new() -> Self {
-        Self { guards: vec![] }
-    }
+// impl AllGuard {
+//     pub fn new() -> Self {
+//         Self { guards: vec![] }
+//     }
 
-    pub fn add_guard(&mut self, guard: impl Guard + 'static) {
-        self.guards.push(Box::new(guard));
-    }
-}
+//     pub fn add_guard(&mut self, guard: impl Guard + 'static) {
+//         self.guards.push(Box::new(guard));
+//     }
+// }
 
-impl Guard for AllGuard {
-    fn check(&self, ctx: &GuardContext) -> bool {
-        if self.guards.is_empty() {
-            return true;
-        }
-        self.guards.iter().all(|g| g.check(ctx))
-    }
+// impl Guard for AllGuard {
+//     fn check(&self, ctx: &GuardContext) -> bool {
+//         if self.guards.is_empty() {
+//             return true;
+//         }
+//         self.guards.iter().all(|g| g.check(ctx))
+//     }
 
-    fn clone_boxed(&self) -> Box<dyn Guard> {
-        Box::new(Self {
-            guards: self.guards.iter().map(|g| (*g).clone_boxed()).collect(),
-        })
-    }
-}
+//     fn clone_boxed(&self) -> Box<dyn Guard> {
+//         Box::new(Self {
+//             guards: self.guards.iter().map(|g| (*g).clone_boxed()).collect(),
+//         })
+//     }
+// }
 
-impl<A: Guard + 'static> FromIterator<A> for AllGuard {
-    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
-        Self {
-            guards: iter
-                .into_iter()
-                .map(|i| Box::new(i) as Box<dyn Guard>)
-                .collect(),
-        }
-    }
-}
+// impl<A: Guard + 'static> FromIterator<A> for AllGuard {
+//     fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
+//         Self {
+//             guards: iter
+//                 .into_iter()
+//                 .map(|i| Box::new(i) as Box<dyn Guard>)
+//                 .collect(),
+//         }
+//     }
+// }
 
-pub struct AnyGuard {
-    guards: Vec<Box<dyn Guard>>,
-}
+// pub struct AnyGuard {
+//     guards: Vec<Box<dyn Guard>>,
+// }
 
-impl AnyGuard {
-    pub fn new() -> Self {
-        Self { guards: vec![] }
-    }
+// impl AnyGuard {
+//     pub fn new() -> Self {
+//         Self { guards: vec![] }
+//     }
 
-    pub fn add_guard(&mut self, guard: impl Guard + 'static) {
-        self.guards.push(Box::new(guard));
-    }
-}
+//     pub fn add_guard(&mut self, guard: impl Guard + 'static) {
+//         self.guards.push(Box::new(guard));
+//     }
+// }
 
-impl Guard for AnyGuard {
-    fn check(&self, ctx: &GuardContext) -> bool {
-        if self.guards.is_empty() {
-            return true;
-        }
-        self.guards.iter().any(|g| g.check(ctx))
-    }
+// impl Guard for AnyGuard {
+//     fn check(&self, ctx: &GuardContext) -> bool {
+//         if self.guards.is_empty() {
+//             return true;
+//         }
+//         self.guards.iter().any(|g| g.check(ctx))
+//     }
+// }
 
-    fn clone_boxed(&self) -> Box<dyn Guard> {
-        Box::new(Self {
-            guards: self.guards.iter().map(|g| (*g).clone_boxed()).collect(),
-        })
-    }
-}
-
-impl<A: Guard + 'static> FromIterator<A> for AnyGuard {
-    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
-        Self {
-            guards: iter
-                .into_iter()
-                .map(|i| Box::new(i) as Box<dyn Guard>)
-                .collect(),
-        }
-    }
-}
-
-pub struct CooldownGuard {
-    cooldown: std::time::Duration,
-    last_used: parking_lot::Mutex<chrono::DateTime<chrono::Utc>>,
-}
-
-impl Guard for CooldownGuard {
-    fn check(&self, ctx: &GuardContext) -> bool {
-        let last_used = self.last_used.lock();
-        let ts = ctx.message.get_timestamp().unwrap_or(chrono::Utc::now());
-        let elapsed = (ts - *last_used);
-        // either some number of seconds or 0
-        let elapsed =
-            std::time::Duration::from_secs(elapsed.num_seconds().try_into().unwrap_or_default());
-
-        // on cooldown
-        if elapsed <= self.cooldown {
-            false
-        } else {
-            *self.last_used.lock() = ts;
-            true
-        }
-    }
-
-    fn clone_boxed(&self) -> Box<dyn Guard> {
-        Box::new(Self {
-            cooldown: self.cooldown,
-            last_used: (*self.last_used.lock()).into(),
-        })
-    }
-}
+// impl<A: Guard + 'static> FromIterator<A> for AnyGuard {
+//     fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
+//         Self {
+//             guards: iter
+//                 .into_iter()
+//                 .map(|i| Box::new(i) as Box<dyn Guard>)
+//                 .collect(),
+//         }
+//     }
+// }
 
 /// allows or forbids users based on their twitch ID
 #[derive(Clone)]

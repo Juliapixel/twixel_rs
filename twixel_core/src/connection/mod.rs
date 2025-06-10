@@ -6,7 +6,7 @@ use hashbrown::HashSet;
 use log::{debug, warn};
 use smallvec::SmallVec;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message as WsMessage};
 
 pub mod pool;
 // #[cfg(feature = "unstable")]
@@ -17,13 +17,13 @@ pub use pool::ConnectionPool;
 use crate::{
     auth::Auth,
     irc_message::{
-        builder::MessageBuilder, command::IrcCommand, message::IrcMessage, ToIrcMessage,
+        ToIrcMessage, builder::MessageBuilder, command::IrcCommand, message::IrcMessage,
     },
 };
 
 pub mod error {
     use thiserror::Error;
-    use tokio_tungstenite::tungstenite::{error::ProtocolError, Error as TungsteniteError};
+    use tokio_tungstenite::tungstenite::{Error as TungsteniteError, error::ProtocolError};
 
     use crate::irc_message::error::IrcMessageParseError;
 
@@ -104,6 +104,7 @@ impl Connection {
             warn!("tried starting connection when it was already started");
             return Err(ConnectionError::AlreadyStarted)?;
         }
+
         let (new_socket, _resp) = tokio_tungstenite::connect_async(TWITCH_IRC_URL)
             .await
             .map_err(ConnectionError::TungsteniteError)?;
@@ -193,7 +194,7 @@ impl Connection {
                 if command == IrcCommand::Pass {
                     "[user token redacted]"
                 } else {
-                    &out.trim()
+                    out.trim()
                 }
             );
             socket.send(WsMessage::Text(out)).await?;
@@ -216,7 +217,7 @@ impl Connection {
                     if cmd == IrcCommand::Pass {
                         "[user token redacted]"
                     } else {
-                        &out.trim()
+                        out.trim()
                     }
                 );
                 socket.feed(WsMessage::Text(out)).await?;

@@ -64,7 +64,7 @@ where
 macro_rules! impl_semantic {
     ($($cmd:ident),*) => {
         $(
-            #[derive(Debug, PartialEq, Eq)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             #[cfg_attr(feature = "serde", derive(serde::Serialize))]
             #[cfg_attr(feature = "serde", serde(transparent))]
             #[doc = concat!("a semantic wrapper around a ", stringify!($cmd), " [IrcMessage](super::message::IrcMessage)")]
@@ -117,6 +117,7 @@ macro_rules! impl_semantic {
         )+
 
         /// enum containing all semantic wrappers around [](super::message::IrcMessage)
+        #[derive(Debug, Clone)]
         pub enum AnySemantic<'a> {
             $($cmd($cmd<'a>)),+
         }

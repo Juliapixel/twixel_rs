@@ -2,7 +2,7 @@ use std::{borrow::Cow, fmt::Write};
 
 use crate::IrcMessage;
 
-use super::{command::IrcCommand, prefix::OwnedPrefix, tags::OwnedTag, ToIrcMessage};
+use super::{ToIrcMessage, command::IrcCommand, prefix::OwnedPrefix, tags::OwnedTag};
 
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

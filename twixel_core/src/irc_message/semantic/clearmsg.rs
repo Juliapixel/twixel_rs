@@ -1,6 +1,6 @@
 use crate::irc_message::tags::OwnedTag;
 
-use super::{util::msg_from_param, ClearMsg};
+use super::{ClearMsg, util::msg_from_param};
 
 impl ClearMsg<'_> {
     pub fn target_msg_id(&self) -> Option<&str> {

@@ -1,15 +1,17 @@
 use std::{any::Any, sync::Arc};
 
-use either::Either;
+use dashmap::DashMap;
 use futures::StreamExt;
+use hashbrown::HashMap;
+use tokio::signal::unix::{signal, SignalKind};
 use twixel_core::{
-    irc_message::{tags::OwnedTag, AnySemantic, PrivMsg},
     Auth, ConnectionPool, MessageBuilder,
+    irc_message::{AnySemantic, PrivMsg, tags::OwnedTag},
 };
 
 use crate::{
     anymap::AnyMap,
-    command::{Command, CommandContext},
+    handler::{Command, CommandContext, CommandHandler},
     guard::GuardContext,
     util::limit_str_at_graphemes,
 };
@@ -47,6 +49,7 @@ pub struct Bot {
     cmd_tx: tokio::sync::mpsc::Sender<BotCommand>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BotCommand {
     SendMessage {
         channel_login: String,
@@ -57,6 +60,7 @@ pub enum BotCommand {
     Reconnect(usize),
     JoinChannel(String),
     PartChannel(String),
+    Shutdown,
 }
 
 impl BotCommand {
@@ -88,7 +92,7 @@ impl Bot {
             .await
             .unwrap(),
             commands: vec![],
-            data: Default::default(),
+            data: BotData::new(),
             cmd_rx: rx,
             cmd_tx: tx,
         }
@@ -111,13 +115,77 @@ impl Bot {
         self
     }
 
+    /// Returns whether to shut down or not
+    async fn handle_cmd(conn_pool: &mut ConnectionPool, cmd: BotCommand, last_sent_msg: &mut HashMap<String, String>) -> bool {
+        match cmd {
+            BotCommand::SendMessage { channel_login, mut message, reply_id } => {
+                log::debug!("sending {} to {}", &message, &channel_login);
+                if let Some(idx) = conn_pool.get_conn_idx(&channel_login) {
+                    let entry = last_sent_msg.entry_ref(
+                        &channel_login,
+                    );
+                    entry.and_modify(|v| { if v == &message {
+                            message += " \u{e0000}";
+                            *v = message.clone();
+                        } else {
+                            *v = message.clone();
+                        }}
+                    ).or_insert(message.clone());
+                    let msg = MessageBuilder::privmsg(&channel_login, limit_str_at_graphemes(&message, 500))
+                            .add_tag(OwnedTag::ReplyParentMsgId, reply_id.unwrap_or_default());
+                    conn_pool.send_to_connection(
+                        msg,
+                        idx
+                    ).await.unwrap();
+                }
+            },
+            BotCommand::SendRawIrc(raw, idx) => {
+                log::debug!("sending {} to connetion {}", raw.command, idx);
+                conn_pool.send_to_connection(raw, idx).await.unwrap();
+            },
+            BotCommand::Reconnect(idx) => {
+                conn_pool.restart_connection(idx).await.unwrap();
+            },
+            BotCommand::JoinChannel(channel) => {
+                conn_pool.join_channel(&channel).await.unwrap();
+            },
+            BotCommand::PartChannel(channel) => {
+                conn_pool.part_channel(&channel).await.unwrap();
+            },
+            BotCommand::Shutdown => {
+                log::info!("shutting down");
+                return true;
+            }
+        };
+        false
+    }
+
     pub async fn run(mut self) {
         let (tx, rx) = async_channel::bounded(CMD_CHANNEL_SIZE);
-        // let cmds: Arc<[Command]> = self.commands.into_iter().map(Into::into).collect();
         let data_store = Arc::new(self.data);
+        let mut msgs = HashMap::<String, String>::new();
+
+        tokio::spawn({
+            let tx = self.cmd_tx.clone();
+            let mut sigterm = signal(SignalKind::terminate()).unwrap();
+            let mut sigint = signal(SignalKind::interrupt()).unwrap();
+            async move {
+                tokio::select! {
+                    _ = sigterm.recv() => {
+                        let _ = tx.send(BotCommand::Shutdown).await;
+                    }
+                    _ = sigint.recv() => {
+                        let _ = tx.send(BotCommand::Shutdown).await;
+                    }
+
+                }
+            }
+        });
+
         let receiver = tokio::spawn(async move {
             loop {
                 tokio::select! {
+                    // Handle message received from twitch IRC
                     Some(recv) = self.conn_pool.next() => {
                         let idx = recv.as_ref().map(|r| r.1).ok();
                         for msg in recv.map(|r| r.0).into_iter().flatten() {
@@ -132,41 +200,14 @@ impl Bot {
                             tokio::spawn(async move { new_tx.send(cx).await.unwrap(); });
                         }
                     }
-                    cmd = self.cmd_rx.recv() => {
-                        match cmd {
-                            Some(BotCommand::SendMessage { channel_login, message, reply_id }) => {
-                                log::debug!("sending {} to {}", &message, &channel_login);
-                                if let Some(idx) = self.conn_pool.get_conn_idx(&channel_login) {
-                                    self.conn_pool.send_to_connection(
-                                        MessageBuilder::privmsg(&channel_login, limit_str_at_graphemes(&message, 500))
-                                            .add_tag(OwnedTag::ReplyParentMsgId, reply_id.unwrap_or_default()),
-                                        idx
-                                    ).await.unwrap();
-                                }
-                            },
-                            Some(BotCommand::SendRawIrc(raw, idx)) => {
-                                log::debug!("sending {} to connetion {}", raw.command, idx);
-                                self.conn_pool.send_to_connection(raw, idx).await.unwrap();
-                            },
-                            Some(BotCommand::Reconnect(idx)) => {
-                                self.conn_pool.restart_connection(idx).await.unwrap();
-                            },
-                            Some(BotCommand::JoinChannel(channel)) => {
-                                self.conn_pool.join_channel(&channel).await.unwrap();
-                            },
-                            Some(BotCommand::PartChannel(channel)) => {
-                                self.conn_pool.part_channel(&channel).await.unwrap();
-                            },
-                            #[allow(unreachable_patterns, reason = "because i want to")]
-                            Some(_) => {
-                                todo!("handle other BotCommands!!!");
-                            },
-                            None => {
-                                log::error!("COMMAND CHANNEL BROKEN");
-                                break;
-                            },
-                        }
-                    }
+                    // Handle bot actions
+                    cmd = self.cmd_rx.recv() => { match cmd {
+                        Some(cmd) => if Self::handle_cmd(&mut self.conn_pool, cmd, &mut msgs).await { break },
+                        None => {
+                            log::error!("COMMAND CHANNEL BROKEN");
+                            break;
+                        },
+                    }}
                 }
             }
         });
@@ -179,7 +220,14 @@ impl Bot {
             let cmds = self.commands.clone();
             let rx = rx.clone();
 
-            local_pool.spawn_pinned(move || bot_worker(rx, cmds));
+            local_pool.spawn_pinned({
+                // let catchall_clone = self
+                //     .catchall
+                //     .iter()
+                //     .map(|c| c.clone_boxed())
+                //     .collect::<Vec<_>>();
+                move || bot_worker(rx, cmds)
+            });
         }
 
         if let Err(e) = receiver.await {
@@ -189,11 +237,13 @@ impl Bot {
 }
 
 async fn bot_worker(
-    rx: async_channel::Receiver<CommandContext<AnySemantic<'static>>>,
+    rx: async_channel::Receiver<CommandContext>,
     cmds: Vec<Command>,
+    // catchall: Vec<Box<dyn CatchallHandler + Send>>,
 ) {
     while let Ok(cx) = rx.recv().await {
-        match &cx.msg {
+        let msg = cx.msg;
+        match &msg {
             AnySemantic::Notice(msg) => {
                 match msg.kind() {
                     Some(Ok(k)) => log::info!("received notice of kind: {k}"),
@@ -239,31 +289,24 @@ async fn bot_worker(
         }
         let gcx = GuardContext {
             data_store: &Default::default(),
-            message: &cx.msg,
+            message: &msg,
         };
         let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)).cloned() else {
+            // for c in &catchall {
+            //     if c.handle(cx.clone()).await {
+            //         continue;
+            //     }
+            // }
             continue;
         };
-        match cx.msg {
-            AnySemantic::PrivMsg(msg) => {
-                cmd.handle(CommandContext {
-                    msg: Either::Left(msg),
-                    connection_idx: cx.connection_idx,
-                    bot_tx: cx.bot_tx,
-                    data_store: cx.data_store,
-                })
-                .await;
-            }
-            AnySemantic::Whisper(msg) => {
-                cmd.handle(CommandContext {
-                    msg: Either::Right(msg),
-                    connection_idx: cx.connection_idx,
-                    bot_tx: cx.bot_tx,
-                    data_store: cx.data_store,
-                })
-                .await;
-            }
-            _ => (),
-        };
+        tokio::task::spawn_local(async move {
+            cmd.handle(CommandContext {
+                msg,
+                connection_idx: cx.connection_idx,
+                bot_tx: cx.bot_tx,
+                data_store: cx.data_store,
+            })
+            .await;
+        });
     }
 }

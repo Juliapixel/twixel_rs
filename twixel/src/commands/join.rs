@@ -1,34 +1,17 @@
-use either::Either;
-use twixel_core::irc_message::{PrivMsg, Whisper};
+use crate::handler::{
+    extract::MessageText,
+    response::{BotResponse, IntoResponse},
+};
 
-use crate::{bot::BotCommand, command::CommandContext};
-
-pub async fn join(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
-    let Either::Left(msg) = cx.msg else {
-        return;
-    };
-
-    let args = msg
-        .message_text()
-        .split_ascii_whitespace()
-        .skip(1)
-        .collect::<Vec<_>>();
+pub async fn join(MessageText(msg): MessageText) -> impl IntoResponse {
+    let args = msg.split_ascii_whitespace().skip(1).collect::<Vec<_>>();
 
     log::info!("Joining {}", args.join(", "));
 
-    cx.bot_tx
-        .send(BotCommand::respond(
-            &msg,
-            format!("joining {}", args.join(", ")),
-            false,
-        ))
-        .await
-        .unwrap();
+    let joins: Vec<BotResponse> = args
+        .iter()
+        .map(|arg| BotResponse::Join(arg.to_string()))
+        .collect();
 
-    for chan in args {
-        cx.bot_tx
-            .send(BotCommand::JoinChannel(chan.into()))
-            .await
-            .unwrap();
-    }
+    (format!("joining {}", args.join(", ")), joins)
 }

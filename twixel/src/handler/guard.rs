@@ -18,6 +18,10 @@ impl CommandGuard {
 }
 
 impl Guard for CommandGuard {
+    fn clone_boxed(&self) -> Box<dyn Guard> {
+        Box::new(self.clone())
+    }
+
     fn check(&self, ctx: &GuardContext) -> bool {
         if let AnySemantic::PrivMsg(msg) = ctx.message {
             let text = msg.message_text();
@@ -31,9 +35,5 @@ impl Guard for CommandGuard {
         } else {
             false
         }
-    }
-
-    fn clone_boxed(&self) -> Box<dyn Guard> {
-        Box::new(self.clone())
     }
 }

@@ -1,34 +1,14 @@
-use either::Either;
 use sqlx::SqlitePool;
-use twixel_core::irc_message::{PrivMsg, Whisper};
+use twixel_core::irc_message::PrivMsg;
 
-use crate::{bot::BotCommand, command::CommandContext, db::upsert_user};
+use crate::{handler::extract::Data, util::db::upsert_user};
 
-pub async fn test(cx: CommandContext<Either<PrivMsg<'static>, Whisper<'static>>>) {
-    let Either::Left(msg) = cx.msg else {
-        return;
-    };
+pub async fn test(Data(pool): Data<SqlitePool>, msg: PrivMsg<'static>) -> String {
+    let mut conn = pool.acquire().await.unwrap();
 
-    let mut conn = cx
-        .data_store
-        .get::<SqlitePool>()
-        .unwrap()
-        .acquire()
-        .await
-        .unwrap();
-
+    // "unimplemented! :3".into()
     match upsert_user(&mut *conn, &msg).await {
-        Ok(_) => {
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, "added user! :3".into(), false))
-                .await
-                .unwrap();
-        }
-        Err(e) => {
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, e.to_string(), false))
-                .await
-                .unwrap();
-        }
+        Ok(_) => "added user! :3".into(),
+        Err(e) => e.to_string(),
     }
 }
