@@ -113,6 +113,7 @@ async fn main() -> Result<(), anyhow::Error> {
             vec!["juliafact".into()],
             "%",
         ))
+        .add_command(Command::new(async || "🪑", vec!["tucfact".into()], "%"))
         .add_command(Command::new(cat_fact, vec!["catfact".into()], "%"))
         .add_command(Command::new(bread_fact, vec!["breadfact".into()], "%"))
         .add_command(Command::new(argtest, vec!["argtest".into()], "%"))

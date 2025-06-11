@@ -1,6 +1,5 @@
 use std::{any::Any, sync::Arc};
 
-use dashmap::DashMap;
 use futures::StreamExt;
 use hashbrown::HashMap;
 use tokio::signal::unix::{SignalKind, signal};
@@ -12,7 +11,7 @@ use twixel_core::{
 use crate::{
     anymap::AnyMap,
     guard::GuardContext,
-    handler::{Command, CommandContext, CommandHandler},
+    handler::{Command, HandlerContext},
     util::limit_str_at_graphemes,
 };
 
@@ -198,7 +197,7 @@ impl Bot {
                     Some(recv) = self.conn_pool.next() => {
                         let idx = recv.as_ref().map(|r| r.1).ok();
                         for msg in recv.map(|r| r.0).into_iter().flatten() {
-                            let cx = CommandContext {
+                            let cx = HandlerContext {
                                 msg: msg.into(),
                                 connection_idx: idx.unwrap(),
                                 bot_tx: self.cmd_tx.clone(),
@@ -246,7 +245,7 @@ impl Bot {
 }
 
 async fn bot_worker(
-    rx: async_channel::Receiver<CommandContext>,
+    rx: async_channel::Receiver<HandlerContext>,
     cmds: Vec<Command>,
     // catchall: Vec<Box<dyn CatchallHandler + Send>>,
 ) {
@@ -309,7 +308,7 @@ async fn bot_worker(
             continue;
         };
         tokio::task::spawn_local(async move {
-            cmd.handle(CommandContext {
+            cmd.handle(HandlerContext {
                 msg,
                 connection_idx: cx.connection_idx,
                 bot_tx: cx.bot_tx,

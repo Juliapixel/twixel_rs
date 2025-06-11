@@ -1,6 +1,7 @@
 use crate::handler::extract::Clap;
 
 #[derive(clap::Parser, Debug)]
+#[command(name = "argtest")]
 pub struct TestArgs {
     #[arg(short, long)]
     target: String,

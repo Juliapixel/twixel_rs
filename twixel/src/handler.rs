@@ -16,7 +16,7 @@ pub mod guard;
 pub mod response;
 
 #[derive(Clone)]
-pub struct CommandContext {
+pub struct HandlerContext {
     pub msg: AnySemantic<'static>,
     pub connection_idx: usize,
     pub bot_tx: tokio::sync::mpsc::Sender<BotCommand>,
@@ -37,7 +37,7 @@ pub trait CommandHandler<P>: Send + Sync + 'static {
 
     fn clone_boxed(&self) -> DynHandler;
 
-    fn handle(&self, cx: CommandContext) -> Self::Fut;
+    fn handle(&self, cx: HandlerContext) -> Self::Fut;
 }
 
 #[derive(Clone, Copy)]
@@ -60,7 +60,7 @@ where
         })
     }
 
-    fn handle(&self, cx: CommandContext) -> Self::Fut {
+    fn handle(&self, cx: HandlerContext) -> Self::Fut {
         Box::pin(self.handler.handle(cx))
     }
 }
@@ -87,7 +87,7 @@ macro_rules! impl_handler {
 
             fn handle(
                     &self,
-                    cx: CommandContext,
+                    cx: HandlerContext,
                 ) -> Self::Fut {
                 let new_self = self.clone();
                 Box::pin(async move {
@@ -144,13 +144,15 @@ where
         Box::pin(self.clone())
     }
 
-    fn handle(&self, cx: CommandContext) -> Self::Fut {
+    fn handle(&self, _cx: HandlerContext) -> Self::Fut {
         let new_self = self.clone();
         Box::pin(async move { new_self().await.into_response() })
     }
 }
 
-pub(crate) fn assert_is_handler<P, T: CommandHandler<P>>(_value: T) {}
+pub(crate) fn assert_is_handler<P, T: CommandHandler<P>>(value: T) -> T {
+    value
+}
 
 #[test]
 fn test_handler_trait() {
@@ -234,7 +236,7 @@ impl Command {
         }
     }
 
-    pub async fn handle(&self, cx: CommandContext) {
+    pub async fn handle(&self, cx: HandlerContext) {
         let sender = cx.bot_tx.clone();
         if let Some(resp) = self.handler.handle(cx.clone()).await {
             Command::handle_resp(resp, &cx.msg, sender).await

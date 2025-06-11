@@ -13,13 +13,13 @@ use twixel_core::irc_message::{AnySemantic, PrivMsg};
 
 use crate::{
     bot::BotCommand,
-    handler::{CommandContext, CommandHandler, response::BotResponse},
+    handler::{CommandHandler, HandlerContext, response::BotResponse},
     util::sanitize_output,
 };
 
 #[derive(Clone)]
 pub struct EvalHandler {
-    cx_sender: tokio::sync::mpsc::Sender<CommandContext>,
+    cx_sender: tokio::sync::mpsc::Sender<HandlerContext>,
 }
 
 impl EvalHandler {
@@ -32,7 +32,7 @@ impl EvalHandler {
 impl CommandHandler<()> for EvalHandler {
     type Fut = Pin<Box<dyn std::future::Future<Output = Option<BotResponse>> + Send>>;
 
-    fn handle(&self, cx: CommandContext) -> Self::Fut {
+    fn handle(&self, cx: HandlerContext) -> Self::Fut {
         let tx = self.cx_sender.clone();
         Box::pin(async move {
             tx.send(cx).await.unwrap();
@@ -56,8 +56,8 @@ impl CommandHandler<()> for EvalHandler {
 
 const MAX_EVAL_DURATION: Duration = Duration::from_secs(5);
 
-fn eval_thread() -> tokio::sync::mpsc::Sender<CommandContext> {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<CommandContext>(16);
+fn eval_thread() -> tokio::sync::mpsc::Sender<HandlerContext> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<HandlerContext>(16);
 
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -171,7 +171,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
     })
 }
 
-async fn eval(ctx: Ctx<'_>, cx: CommandContext) {
+async fn eval(ctx: Ctx<'_>, cx: HandlerContext) {
     let source_channel: String = cx.msg.get_param(0).unwrap().split_at(1).1.into();
     let Some(code) = cx
         .msg

@@ -1,6 +1,7 @@
 use core::future::Ready;
-use std::{future::ready, sync::Arc};
+use std::{convert::Infallible, future::ready, sync::Arc};
 
+use futures::{FutureExt, future::Map};
 use twixel_core::{IrcCommand, irc_message::AnySemantic};
 
 use crate::{bot::BotData, handler::response::IntoResponse};
@@ -24,7 +25,7 @@ pub trait ExtractFull: Sized {
 impl ExtractFull for AnySemantic<'static> {
     type Future = Ready<Result<Self, Self::Error>>;
 
-    type Error = ();
+    type Error = Infallible;
 
     fn extract_full(msg: AnySemantic<'static>, _data: Arc<BotData>) -> Self::Future {
         ready(Ok(msg))
@@ -85,6 +86,16 @@ impl_semantic!(
 );
 
 type ReadySelf<T: Extract> = Ready<Result<T, <T as Extract>::Error>>;
+
+impl<T: Extract> Extract for Option<T> {
+    type Future = Map<T::Future, fn(Result<T, T::Error>) -> Result<Option<T>, Infallible>>;
+
+    type Error = Infallible;
+
+    fn extract(msg: &AnySemantic<'_>, data: Arc<BotData>) -> Self::Future {
+        T::extract(msg, data).map(|t| Ok(t.ok()))
+    }
+}
 
 pub struct MessageText(pub String);
 
@@ -177,7 +188,7 @@ pub struct Data<T>(pub T);
 
 impl<T: Send + Sync + Clone + 'static> Extract for Data<T> {
     type Future = ReadySelf<Self>;
-    type Error = ();
+    type Error = Infallible;
 
     fn extract(_msg: &AnySemantic<'_>, data: Arc<BotData>) -> Self::Future {
         ready(Ok(Self(
@@ -210,10 +221,6 @@ impl<T: clap::Parser + Send> Extract for Clap<T> {
                     vec![v]
                 }
             });
-        let Some((cmd_name, _)) = msg.message_text().split_once(" ") else {
-            return ready(Err(None));
-        };
-        let cmd_name = cmd_name.to_string();
         ready(match T::try_parse_from(segments) {
             Ok(t) => Ok(Self(t)),
             Err(e) => Err(Some(e)),

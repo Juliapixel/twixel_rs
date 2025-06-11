@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use clap::error::{ContextKind, ErrorKind};
 
 pub enum BotResponse {
@@ -63,6 +65,12 @@ impl<T: IntoResponse, E: IntoResponse> IntoResponse for Result<T, E> {
             Ok(o) => o.into_response(),
             Err(e) => e.into_response(),
         }
+    }
+}
+
+impl IntoResponse for Infallible {
+    fn into_response(self) -> Option<BotResponse> {
+        unreachable!("WHAT.");
     }
 }
 
