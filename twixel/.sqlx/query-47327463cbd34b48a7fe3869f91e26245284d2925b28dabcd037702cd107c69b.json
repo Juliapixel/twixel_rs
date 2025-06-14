@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                UPDATE twitch_users SET\n                twitch_login = ?1,\n                twitch_display_name = ?2\n                WHERE twitch_id = ?3\n                RETURNING id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "47327463cbd34b48a7fe3869f91e26245284d2925b28dabcd037702cd107c69b"
+}

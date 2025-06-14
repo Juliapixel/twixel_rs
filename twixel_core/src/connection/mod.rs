@@ -173,7 +173,7 @@ impl Connection {
                         if r.get_command() == IrcCommand::AuthSuccessful {
                             self.state = ConnectionState::Working;
                         }
-                        received.push(r.to_owned())
+                        received.push(r.to_static())
                     }
                     Err(e) => return Err(e.into()),
                 }
@@ -256,7 +256,7 @@ impl futures_util::Stream for Connection {
                 let mut received = SmallVec::new();
                 for msg in IrcMessage::from_ws_message(&recv) {
                     match msg {
-                        Ok(msg) => received.push(msg.to_owned()),
+                        Ok(msg) => received.push(msg.to_static()),
                         Err(e) => return Poll::Ready(Some(Err(e.into()))),
                     }
                 }

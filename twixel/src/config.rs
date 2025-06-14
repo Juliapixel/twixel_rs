@@ -10,6 +10,7 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(get_config);
 pub struct Config {
     pub twitch: Twitch,
     pub database: Database,
+    pub openai: OpenAi,
 }
 
 #[derive(Debug, Deserialize)]
@@ -22,6 +23,11 @@ pub struct Twitch {
 #[derive(Debug, Deserialize)]
 pub struct Database {
     pub path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAi {
+    pub api_key: Option<String>,
 }
 
 fn get_config() -> Config {

@@ -1,20 +1,22 @@
 mod argtest;
 mod breadfact;
 mod catfact;
+mod gpt;
 mod join;
 mod part;
-// mod remindfish;
+mod remindfish;
 mod sql;
 mod strdbg;
 mod suggest;
 mod test;
 
+pub use argtest::*;
 pub use breadfact::*;
 pub use catfact::*;
+pub use gpt::*;
 pub use join::*;
 pub use part::*;
-// pub use remindfish::*;
-pub use argtest::*;
+pub use remindfish::*;
 pub use sql::*;
 pub use strdbg::*;
 pub use suggest::*;

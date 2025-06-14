@@ -85,16 +85,14 @@ pub async fn sql(MessageText(msg): MessageText, Data(pool): Data<SqlitePool>) ->
     let mut conn = pool.acquire().await.unwrap();
 
     let start = std::time::Instant::now();
-    let query = query.to_owned();
 
-    let res = conn.fetch_all(query.as_str()).await;
+    let res = conn.fetch_all(query).await;
 
     let elapsed = start.elapsed();
 
     match res {
         Ok(r) => {
             let row_count = r.len();
-
             let out = to_json(&r);
 
             format!(

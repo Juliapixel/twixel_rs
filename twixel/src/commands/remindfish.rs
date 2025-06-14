@@ -1,107 +1,78 @@
 use std::{sync::LazyLock, time::Duration};
 
-use either::Either;
 use sqlx::SqlitePool;
-use twixel_core::irc_message::{AnySemantic, PrivMsg, Whisper};
 
 use crate::{
-    bot::BotCommand,
-    command::{extract::Data, CommandContext},
-    util::db::{get_user_by_twitch_id, upsert_user},
+    handler::{
+        extract::{Data, MessageText, SenderId},
+        response::{BotResponse, DelayedResponse, IntoResponse},
+    },
+    util::db::{TwixelUser, get_user_by_twitch_login},
 };
 
 static CATCH_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"@[a-zA-Z0-9_]+, You caught a [✨🫧] {1,2}(\S+) {1,2}[✨🫧]").unwrap()
+    regex::Regex::new(r"@([a-zA-Z0-9_]+), You caught a [✨🫧] {1,2}(\S+) {1,2}[✨🫧]").unwrap()
 });
 
-fn write_random_spice_text(mut w: impl core::fmt::Write,catch: &str) -> core::fmt::Result {
+fn write_random_spice_text(mut w: impl core::fmt::Write, catch: &str) -> core::fmt::Result {
     match rand::random_range(0..5) {
-        0 => write!(w, "that was a really nice {catch} earlier but now you gotta lock in!"),
+        0 => write!(
+            w,
+            "that was a really nice {catch} earlier but now you gotta lock in!"
+        ),
         1 => write!(w, "wake up lazybones, there's fish to catch!"),
         2 => write!(w, "its fishin' time."),
         3 => write!(w, "women want you, fish fear you etc. etc. now go fish!"),
         4 => write!(w, "you dont get paid to laze around all day, go fish!."),
-        _ => write!(w, "go fish!")
+        _ => write!(w, "go fish!"),
     }
 }
 
-pub async fn handle_joefish(cx: CommandContext<AnySemantic<'static>>) -> bool {
-    let AnySemantic::PrivMsg(msg) = cx.msg else {
-        return false;
-    };
+const GOFISHGAME_ID: &str = "951349582";
 
-    if msg.sender_id().is_none_or(|id| id != "951349582") {
-        return false;
+pub async fn handle_joefish(
+    MessageText(text): MessageText,
+    SenderId(id): SenderId,
+    Data(pool): Data<SqlitePool>,
+) -> Option<DelayedResponse<BotResponse>> {
+    if id != GOFISHGAME_ID {
+        return None;
     }
-
-    let Some(catch) = CATCH_REGEX
-        .captures(msg.message_text())
-        .and_then(|c| c.get(1))
-        .map(|c| c.as_str().to_owned())
-        else
-    {
-        return true;
+    let (Some(fisherman), Some(catch)) =
+        CATCH_REGEX.captures(&text).map(|c| (c.get(1), c.get(2)))?
+    else {
+        return None;
     };
+    let (fisherman, catch) = (fisherman.as_str(), catch.as_str());
     log::info!("new catch! {catch:?}");
 
-    let mut conn = cx
-        .data_store
-        .get::<SqlitePool>()
-        .unwrap()
-        .acquire()
-        .await
-        .unwrap();
+    let mut conn = pool.acquire().await.unwrap();
 
-    if let Ok(Some(user)) = get_user_by_twitch_id(&mut *conn, msg.sender_id().unwrap()).await
-        && user.fish_reminder()
-    {
-        tokio::spawn(async move {
-            log::info!("fish reminder set for {}", msg.sender_login().unwrap());
-            tokio::time::sleep(Duration::from_secs(30 * 60)).await;
-            let mut reminder = format!(
-                "@{}, ",
-                msg.sender_login().unwrap()
-            );
-            write_random_spice_text(&mut reminder, catch.as_str()).unwrap();
-            if let Err(e) = cx
-                .bot_tx
-                .send(BotCommand::respond(
-                    &msg,
-                    reminder,
-                    false,
-                ))
-                .await
-            {
-                log::error!("Failed to remind user to fish! {e}");
-            }
-        });
-    } else {
-        log::debug!("fish caught but no reminder set for id {}", msg.sender_id().unwrap())
-    }
-
-    false
-}
-
-pub async fn remindfish(Data(pool): Data<SqlitePool>) -> &'static str {
-    let mut conn = pool
-        .acquire()
-        .await
-        .unwrap();
-
-    let user = match upsert_user(&mut *conn, &msg).await {
-        Ok(Some(user)) => user,
-        Ok(None) => {
-            log::error!("Failed to upsert user.");
-            return;
-        }
+    let user = match get_user_by_twitch_login(&mut *conn, fisherman).await {
+        Ok(u) => u?,
         Err(e) => {
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, e.to_string(), false))
-                .await
-                .unwrap();
-            return;
+            return Some(DelayedResponse(
+                e.into_response().await?,
+                Duration::new(0, 0),
+            ));
         }
     };
+    if user.fish_reminder() {
+        log::info!("fish reminder set for {fisherman}");
+        let mut reminder = format!("@{fisherman}, ");
+        write_random_spice_text(&mut reminder, catch).unwrap();
+        Some(DelayedResponse(
+            reminder.into_response().await?,
+            Duration::from_secs(30 * 60),
+        ))
+    } else {
+        log::debug!("fish caught but no reminder set for {fisherman}");
+        None
+    }
+}
+
+pub async fn remindfish(user: TwixelUser, Data(pool): Data<SqlitePool>) -> &'static str {
+    let mut conn = pool.acquire().await.unwrap();
 
     let uid = user.id();
 
@@ -117,39 +88,34 @@ pub async fn remindfish(Data(pool): Data<SqlitePool>) -> &'static str {
     .await
     {
         Ok(r) => {
-            let reply = if r.fish_reminder == 1 {
+            if r.fish_reminder == 1 {
                 "reminder created!"
             } else {
                 "reminder removed!"
-            };
-            cx.bot_tx
-                .send(BotCommand::respond(&msg, reply.into(), false))
-                .await
-                .unwrap()
-        }
-        Err(e)
-            if e.as_database_error()
-                .is_some_and(|e| e.is_unique_violation()) =>
-        {
-            cx.bot_tx
-                .send(BotCommand::respond(
-                    &msg,
-                    "ur already reminded duh".into(),
-                    false,
-                ))
-                .await
-                .unwrap()
+            }
         }
         Err(e) => {
             log::error!("Failed to create fish reminder: {e}");
-            cx.bot_tx
-                .send(BotCommand::respond(
-                    &msg,
-                    "Failed to create fish reminder".into(),
-                    false,
-                ))
-                .await
-                .unwrap()
+            "Failed to create fish reminder"
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{commands::handle_joefish, handler::assert_is_handler};
+
+    #[test]
+    fn wah() {
+        assert_is_handler(handle_joefish);
+    }
+
+    #[test]
+    fn catch_regex() {
+        assert!(
+            super::CATCH_REGEX
+                .captures("@gawblemachine, You caught a ✨ 🪝 ✨ ! It weighs 1.41 lbs. (30m cooldown after a catch)")
+                .is_some_and(|c| c.get(1).is_some_and(|c| c.as_str() == "🪝"))
+        )
     }
 }

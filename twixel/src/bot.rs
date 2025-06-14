@@ -11,7 +11,7 @@ use twixel_core::{
 use crate::{
     anymap::AnyMap,
     guard::GuardContext,
-    handler::{Command, HandlerContext},
+    handler::{Command, CommandHandler, DynHandler, HandlerContext},
     util::limit_str_at_graphemes,
 };
 
@@ -27,8 +27,8 @@ impl BotData {
         }
     }
 
-    pub fn get<T: Any + Send + Sync>(&self) -> Option<&T> {
-        self.data.get::<Arc<T>>().map(|arc| &**arc)
+    pub fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        self.data.get::<Arc<T>>().cloned()
     }
 
     fn insert<T: Any + Send + Sync>(&mut self, value: T) -> Option<Arc<T>> {
@@ -43,6 +43,7 @@ impl BotData {
 pub struct Bot {
     conn_pool: ConnectionPool,
     commands: Vec<Command>,
+    catchall: Vec<DynHandler>,
     data: BotData,
     cmd_rx: tokio::sync::mpsc::Receiver<BotCommand>,
     cmd_tx: tokio::sync::mpsc::Sender<BotCommand>,
@@ -91,6 +92,7 @@ impl Bot {
             .await
             .unwrap(),
             commands: vec![],
+            catchall: vec![],
             data: BotData::new(),
             cmd_rx: rx,
             cmd_tx: tx,
@@ -106,6 +108,11 @@ impl Bot {
 
     pub fn add_command(mut self, command: Command) -> Self {
         self.commands.push(command);
+        self
+    }
+
+    pub fn add_catchall<T>(mut self, handler: impl CommandHandler<T>) -> Self {
+        self.catchall.push(handler.clone_boxed());
         self
     }
 
@@ -180,12 +187,13 @@ impl Bot {
             async move {
                 tokio::select! {
                     _ = sigterm.recv() => {
-                        let _ = tx.send(BotCommand::Shutdown).await;
+                        log::info!("SIGTERM received, shutting down");
+                        tx.send(BotCommand::Shutdown).await
                     }
                     _ = sigint.recv() => {
-                        let _ = tx.send(BotCommand::Shutdown).await;
+                        log::info!("SIGINT received, shutting down");
+                        tx.send(BotCommand::Shutdown).await
                     }
-
                 }
             }
         });
@@ -226,15 +234,16 @@ impl Bot {
 
         for _i in 0..local_pool.num_threads() {
             let cmds = self.commands.clone();
+            // let catchall = self.catchall.iter().map(|h| h.clone_boxed()).collect();
             let rx = rx.clone();
 
             local_pool.spawn_pinned({
-                // let catchall_clone = self
-                //     .catchall
-                //     .iter()
-                //     .map(|c| c.clone_boxed())
-                //     .collect::<Vec<_>>();
-                move || bot_worker(rx, cmds)
+                let catchall_clone = self
+                    .catchall
+                    .iter()
+                    .map(|c| Command::new_catchall(c.clone_boxed()))
+                    .collect::<Vec<_>>();
+                move || bot_worker(rx, cmds, catchall_clone)
             });
         }
 
@@ -247,8 +256,9 @@ impl Bot {
 async fn bot_worker(
     rx: async_channel::Receiver<HandlerContext>,
     cmds: Vec<Command>,
-    // catchall: Vec<Box<dyn CatchallHandler + Send>>,
+    catchall: Vec<Command>,
 ) {
+    let catchall: Vec<Arc<Command>> = catchall.into_iter().map(Arc::new).collect();
     while let Ok(cx) = rx.recv().await {
         let msg = cx.msg;
         match &msg {
@@ -299,12 +309,19 @@ async fn bot_worker(
             data_store: &Default::default(),
             message: &msg,
         };
+        for c in &catchall {
+            let cx = HandlerContext {
+                msg: msg.clone(),
+                connection_idx: cx.connection_idx,
+                bot_tx: cx.bot_tx.clone(),
+                data_store: cx.data_store.clone(),
+            };
+            let c = c.clone();
+            tokio::task::spawn_local(async move {
+                c.handle(cx).await;
+            });
+        }
         let Some(cmd) = cmds.iter().find(|c| c.matches(&gcx)).cloned() else {
-            // for c in &catchall {
-            //     if c.handle(cx.clone()).await {
-            //         continue;
-            //     }
-            // }
             continue;
         };
         tokio::task::spawn_local(async move {

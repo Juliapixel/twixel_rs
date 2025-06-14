@@ -51,7 +51,7 @@ pub fn limit_str_at_graphemes(value: &str, limit: usize) -> &str {
 
 /// prevents message output from running commands over twitch IRC
 pub fn sanitize_output(out: &mut String) {
-    if out.starts_with('.') || out.starts_with('/') {
+    if out.starts_with(['.', '/']) {
         out.insert(0, '\u{e0000}');
     }
 }

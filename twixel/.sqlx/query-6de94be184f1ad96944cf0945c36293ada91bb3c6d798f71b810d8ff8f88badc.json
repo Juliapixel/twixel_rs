@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET\n            fish_reminder = 1 - fish_reminder\n            WHERE\n            id = ?1\n            RETURNING fish_reminder",
+  "describe": {
+    "columns": [
+      {
+        "name": "fish_reminder",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6de94be184f1ad96944cf0945c36293ada91bb3c6d798f71b810d8ff8f88badc"
+}

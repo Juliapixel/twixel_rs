@@ -88,7 +88,7 @@ impl<'a> MessageBuilder<'a> {
 
         // prefix
         if let Some(prefix) = &self.prefix {
-            write!(&mut out, "{} ", prefix).unwrap();
+            write!(&mut out, "{prefix} ").unwrap();
         }
 
         // command
@@ -96,7 +96,7 @@ impl<'a> MessageBuilder<'a> {
 
         // params
         for param in self.params.into_iter() {
-            write!(&mut out, " {}", param,).unwrap();
+            write!(&mut out, " {param}",).unwrap();
         }
 
         // CRLF EOL
@@ -141,7 +141,7 @@ impl<'a> MessageBuilder<'a> {
             if idx > 0 {
                 write!(&mut channel_list, ",").unwrap()
             }
-            write!(&mut channel_list, "#{}", chan).unwrap()
+            write!(&mut channel_list, "#{chan}").unwrap()
         }
         Self::new(IrcCommand::Join).add_param(channel_list)
     }
@@ -152,7 +152,7 @@ impl<'a> MessageBuilder<'a> {
             if idx > 0 {
                 write!(&mut channel_list, ",").unwrap()
             }
-            write!(&mut channel_list, "#{}", chan).unwrap()
+            write!(&mut channel_list, "#{chan}").unwrap()
         }
         Self::new(IrcCommand::Part).add_param(channel_list)
     }

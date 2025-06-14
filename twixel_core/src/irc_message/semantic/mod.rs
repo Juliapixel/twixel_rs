@@ -113,6 +113,10 @@ macro_rules! impl_semantic {
                         _ => None
                     }
                 }
+
+                pub fn to_static(self) -> $cmd<'static> {
+                    $cmd::<'static>::from_message(self.to_inner().to_static()).unwrap()
+                }
             }
         )+
 
@@ -148,7 +152,6 @@ macro_rules! impl_semantic {
                 }
             }
 
-
             fn inner(&self) -> &$crate::irc_message::message::IrcMessage<'a> {
                 match self {
                     $(Self::$cmd(inner) => inner.inner()),+
@@ -160,6 +163,12 @@ macro_rules! impl_semantic {
             }
         }
     };
+}
+
+impl<'a> AnySemantic<'a> {
+    pub fn to_static(self) -> AnySemantic<'static> {
+        AnySemantic::<'static>::from_message(self.to_inner().to_static()).unwrap()
+    }
 }
 
 impl_semantic!(

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            u.id,\n            u.creation_ts,\n            u.role,\n            u.fish_reminder\n        FROM users AS u LEFT JOIN twitch_users as t ON\n        t.user_id = u.id\n        WHERE\n        t.twitch_login = ?1;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "creation_ts",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "fish_reminder",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "a4518632651a47fadaf2e95ec2cb5fafc8392d11c9281d2550794937428d27af"
+}

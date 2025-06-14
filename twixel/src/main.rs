@@ -1,14 +1,18 @@
+#![allow(refining_impl_trait)]
+
 use std::str::FromStr;
 
 use bot::Bot;
 use cli::ARGS;
-use commands::{argtest, bread_fact, cat_fact, join, part, sql, strdbg, suggest, test};
+use commands::{
+    argtest, bread_fact, cat_fact, handle_joefish, join, part, sql, strdbg, suggest, test,
+};
 use config::CONFIG;
 use guard::UserGuard;
-use handler::{Command, CommandBuilder};
-use sqlx::sqlite::SqliteConnectOptions;
+use handler::{Command, CommandBuilder, response::BotResponse};
+use sqlx::{Sqlite, sqlite::SqliteConnectOptions};
 
-use crate::handler::response::BotResponse;
+use crate::commands::gpt;
 
 mod anymap;
 mod bot;
@@ -43,14 +47,16 @@ async fn main() -> Result<(), anyhow::Error> {
             .to_string_lossy(),
     );
 
-    let db = sqlx::SqlitePool::connect_with(
-        SqliteConnectOptions::from_str(&db_url)
-            .expect("bad sqlite DB url")
-            .create_if_missing(true)
-            .optimize_on_close(true, None),
-    )
-    .await
-    .expect("failed to create SQLITE DB pool");
+    let db = sqlx::pool::PoolOptions::<Sqlite>::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::from_str(&db_url)
+                .expect("bad sqlite DB url")
+                .create_if_missing(true)
+                .optimize_on_close(true, None),
+        )
+        .await
+        .expect("failed to create SQLITE DB pool");
 
     sqlx::migrate!("./migrations")
         .run(&db)
@@ -62,8 +68,8 @@ async fn main() -> Result<(), anyhow::Error> {
         .add_channels(ARGS.channels.iter().map(|s| s.as_str()))
         .await
         .data(db)
+        .add_catchall(handle_joefish)
         .add_command(Command::new(async || "hi", vec!["hi".into()], "%"))
-        // .catchall(handle_joefish)
         .add_command(
             CommandBuilder::new(join, vec!["join".into()], "%")
                 .and(UserGuard::allow([JULIA_ID]))
@@ -74,9 +80,9 @@ async fn main() -> Result<(), anyhow::Error> {
                 .and(UserGuard::allow([JULIA_ID]))
                 .build(),
         )
-        // .add_command(
-        //     CommandBuilder::new(wrap_fn(remindfish), vec!["remindfish".into()], "%").build(),
-        // )
+        .add_command(
+            CommandBuilder::new(commands::remindfish, vec!["remindfish".into()], "%").build(),
+        )
         .add_command(CommandBuilder::new(suggest, vec!["suggest".into()], "%").build())
         .add_command(
             CommandBuilder::new(part, vec!["part".into(), "leave".into()], "%")
@@ -113,7 +119,13 @@ async fn main() -> Result<(), anyhow::Error> {
             vec!["juliafact".into()],
             "%",
         ))
+        .add_command(Command::new(gpt, vec!["gpt".into()], "%"))
         .add_command(Command::new(async || "🪑", vec!["tucfact".into()], "%"))
+        .add_command(Command::new(
+            async || "+gofish",
+            vec!["gofish".into(), "fish".into()],
+            "%",
+        ))
         .add_command(Command::new(cat_fact, vec!["catfact".into()], "%"))
         .add_command(Command::new(bread_fact, vec!["breadfact".into()], "%"))
         .add_command(Command::new(argtest, vec!["argtest".into()], "%"))

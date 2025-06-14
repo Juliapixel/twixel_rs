@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            INSERT INTO users (\n                creation_ts\n            )\n            VALUES\n            (?1)\n            RETURNING id, creation_ts, role, fish_reminder\n            ",
+  "query": "\n                INSERT INTO users (\n                    creation_ts\n                )\n                VALUES\n                (?1)\n                RETURNING id, creation_ts, role, fish_reminder\n                ",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "2140b681f6f026a6719dfc88c3c258365f8fcc14706e2226e11ab5341b878dd7"
+  "hash": "6c146ae11419462069897cab5b317e7bfc5a65313658420864d59445f66d513c"
 }

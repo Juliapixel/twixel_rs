@@ -7,7 +7,7 @@ use twixel_core::irc_message::AnySemantic;
 
 use crate::{
     bot::{BotCommand, BotData},
-    guard::{AndGuard, Guard, GuardContext, OrGuard},
+    guard::{AndGuard, Guard, GuardContext, NoOpGuard, OrGuard},
     handler::response::{BotResponse, IntoResponse},
 };
 
@@ -32,7 +32,7 @@ pub type DynHandler = Pin<
     >,
 >;
 
-pub trait CommandHandler<P>: Send + Sync + 'static {
+pub trait CommandHandler<P>: Send + 'static {
     type Fut: Future<Output = Option<BotResponse>> + Send + 'static;
 
     fn clone_boxed(&self) -> DynHandler;
@@ -48,8 +48,8 @@ struct ErasedHandler<T, H> {
 
 impl<T, H> CommandHandler<()> for ErasedHandler<T, H>
 where
-    H: CommandHandler<T> + Send + Sync + Clone,
-    T: Send + Sync + 'static,
+    H: CommandHandler<T> + Send + Clone,
+    T: Send + 'static,
 {
     type Fut = Pin<Box<dyn Future<Output = Option<BotResponse>> + Send + 'static>>;
 
@@ -70,11 +70,11 @@ macro_rules! impl_handler {
         #[allow(unused_parens, non_snake_case)]
         impl<F, Fut, Res, $($ty,)* $last> CommandHandler<($($ty,)* $last)> for F
         where
-            F: FnOnce($($ty,)* $last) -> Fut + Clone + Send + Sync + 'static,
+            F: FnOnce($($ty,)* $last) -> Fut + Clone + Send + 'static,
             Fut: Future<Output = Res> + Send,
             Res: IntoResponse,
-            $($ty: Extract + Send + Sync + 'static,)*
-            $last: ExtractFull + Send + Sync + 'static
+            $($ty: Extract + Send + 'static,)*
+            $last: ExtractFull + Send + 'static
         {
             type Fut = Pin<Box<dyn Future<Output = Option<BotResponse>> + Send>>;
 
@@ -95,19 +95,19 @@ macro_rules! impl_handler {
                     $(
                         let $ty = match $ty::extract(&msg, cx.data_store.clone()).await {
                             Ok(v) => v,
-                            Err(e) => return e.into_response()
+                            Err(e) => return e.into_response().await
                         };
                     )*
 
                     let $last = match $last::extract_full(msg, cx.data_store.clone()).await {
                         Ok(v) => v,
-                        Err(e) => return e.into_response()
+                        Err(e) => return e.into_response().await
                     };
 
                     new_self(
                         $($ty,)*
                         $last
-                    ).await.into_response()
+                    ).await.into_response().await
                 })
             }
         }
@@ -125,7 +125,7 @@ impl_handler!([T1, T2, T3, T4, T5, T6, T7], U);
 
 impl<F, Fut, Res> CommandHandler<()> for F
 where
-    F: FnOnce() -> Fut + Clone + Send + Sync + 'static,
+    F: FnOnce() -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Res> + Send,
     Res: IntoResponse,
 {
@@ -146,10 +146,11 @@ where
 
     fn handle(&self, _cx: HandlerContext) -> Self::Fut {
         let new_self = self.clone();
-        Box::pin(async move { new_self().await.into_response() })
+        Box::pin(async move { new_self().await.into_response().await })
     }
 }
 
+#[cfg(test)]
 pub(crate) fn assert_is_handler<P, T: CommandHandler<P>>(value: T) -> T {
     value
 }
@@ -202,6 +203,13 @@ impl Command {
         Self {
             handler: handler.clone_boxed(),
             guard: CommandGuard::new(names, prefix.into()).clone_boxed(),
+        }
+    }
+
+    pub fn new_catchall(handler: DynHandler) -> Self {
+        Self {
+            handler,
+            guard: NoOpGuard {}.clone_boxed(),
         }
     }
 
