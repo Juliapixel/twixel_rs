@@ -5,20 +5,28 @@ use thiserror::Error;
 macro_rules! commands {
     (
         $name:ident, $error:ident,
-        [$($var:ident),+]
+        [
+            $(
+                $(#[$comment:meta])*
+                $var:ident
+            ),+
+        ]
         $($key:literal = $val:ident),+
     ) => {
+        /// All of Twitch's supported IRC commands
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "&'static str", try_from = "&str"))]
         #[derive(Debug, PartialEq, Eq, Clone, Copy)]
         pub enum $name {
-            $($var,)*
+            $(
+                $(#[$comment])*
+                $var,
+            )*
         }
 
+        /// An unidentified IRC command was received
         #[derive(Debug, Clone, PartialEq, Eq, Error)]
-        pub enum $error {
-            #[error("the IRC command \"{0}\" was not identified!")]
-            Failed(String),
-        }
+        #[error("the IRC command \"{0}\" was not identified!")]
+        pub struct $error(String);
 
         impl TryFrom<&str> for $name {
             type Error = $error;
@@ -26,7 +34,7 @@ macro_rules! commands {
             fn try_from(val: &str) -> Result<Self, $error> {
                 match val {
                     $($key => Ok(Self::$val),)*
-                    _ => Err($error::Failed(String::from(val)))
+                    _ => Err($error(String::from(val)))
                 }
             }
         }
@@ -51,27 +59,49 @@ macro_rules! commands {
 commands! {
     IrcCommand, IrcCommandError,
     [
+        /// The IRC `PASS` command
         Pass,
+        /// The IRC `NICK` command
         Nick,
+        /// The IRC `JOIN` command
         Join,
+        /// The IRC `PART` command
         Part,
+        /// The IRC `NOTICE` command
         Notice,
+        /// The IRC `CLEARMSG` command
         ClearMsg,
+        /// The IRC `CLEARCHAT` command
         ClearChat,
+        /// The IRC `HOSTTARGET` command
         HostTarget,
+        /// The IRC `PRIVMSG` command
         PrivMsg,
+        /// The IRC `PING` command
         Ping,
+        /// The IRC `PONG` command
         Pong,
+        /// The IRC `CAP` command
         Cap,
+        /// The IRC `GLOBALUSERSTATE` command
         GlobalUserState,
+        /// The IRC `USERSTATE` command
         UserState,
+        /// The IRC `ROOMSTATE` command
         RoomState,
+        /// The IRC `USERNOTICE` command
         UserNotice,
+        /// The IRC `RECONNECT` command
         Reconnect,
+        /// The IRC `WHISPER` command
         Whisper,
+        /// The IRC `421` command
         UnsupportedError,
+        /// The IRC `353` and `366` commands
         UserList,
+        /// The IRC `001` command
         AuthSuccessful,
+        /// Many different IRC commands that are sent during twitch's MOTD messages
         Useless
     ]
     "PASS" = Pass,

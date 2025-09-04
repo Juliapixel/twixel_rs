@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, ops::Range, slice::Iter, str::FromStr};
+use std::{borrow::Cow, fmt::Display, ops::{Deref, Range}, slice::Iter, str::FromStr};
 
 #[cfg(feature = "serde")]
 use serde::{
@@ -6,156 +6,49 @@ use serde::{
     ser::{SerializeStruct, SerializeStructVariant},
 };
 use smallvec::SmallVec;
+#[cfg(feature = "connection")]
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::irc_message::{error::IrcMessageStructureError, prefix::RawPrefix, tags::RawIrcTags};
+use crate::irc_message::{error::IrcMessageStructureError, iter::IrcMessageParseIter, prefix::RawPrefix, tags::RawIrcTags};
 
 use super::{
-    ToIrcMessage, command::IrcCommand, error::IrcMessageParseError, iter::IrcMessageParseIter,
-    tags::OwnedTag,
+    ToIrcMessage, command::IrcCommand, error::IrcMessageParseError, tags::OwnedTag,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IrcMessage<'a> {
-    raw: Cow<'a, str>,
+type ParamVec = SmallVec<[Range<usize>; 3]>;
+type MessageParts = (Option<RawIrcTags>, Option<RawPrefix>, IrcCommand, ParamVec);
+
+/// An IRCv3 Message
+#[derive(Debug, Clone)]
+pub struct IrcMessage {
+    raw: String,
     tags: Option<RawIrcTags>,
     prefix: Option<RawPrefix>,
     command: IrcCommand,
-    params: SmallVec<[Range<usize>; 3]>,
+    params: ParamVec,
 }
 
-impl<'a> IrcMessage<'a> {
-    pub fn new(val: Cow<'a, str>) -> Result<Self, IrcMessageParseError> {
-        Self::try_from(val)
+impl IrcMessage {
+    /// Parses an IRCv3 message into this struct
+    pub fn new(value: impl Into<String> + Deref<Target = str>) -> Result<Self, IrcMessageParseError> {
+        let (tags, prefix, command, params) = Self::get_parts(&value)?;
+
+        Ok(Self {
+            raw: value.into(),
+            tags,
+            prefix,
+            command,
+            params,
+        })
     }
 
-    pub(crate) fn from_ws_message(ws_message: &'a WsMessage) -> IrcMessageParseIter<'a> {
-        let text = ws_message.to_text().unwrap_or_default();
-
-        IrcMessageParseIter::new(text)
+    /// Parses multiple IRCv3 messages from one multiline string, where each line
+    /// is a message
+    pub fn new_multiline<'a>(value: &'a str) -> IrcMessageParseIter<'a> {
+        IrcMessageParseIter::new(value)
     }
 
-    #[deprecated = "use IrcMessage::to_static instead"]
-    pub fn to_owned(self) -> IrcMessage<'static> {
-        self.to_static()
-    }
-
-    pub fn to_static(self) -> IrcMessage<'static> {
-        IrcMessage::<'static> {
-            raw: Cow::Owned(self.raw.into_owned()),
-            tags: self.tags,
-            prefix: self.prefix,
-            command: self.command,
-            params: self.params,
-        }
-    }
-
-    pub fn raw(&self) -> &str {
-        &self.raw
-    }
-
-    pub fn into_inner(self) -> Cow<'a, str> {
-        self.raw
-    }
-
-    pub fn badges(&'a self) -> impl Iterator<Item = (&'a str, &'a str)> {
-        self.tags
-            .as_ref()
-            .and_then(|t| t.get_value(&self.raw, OwnedTag::Badges).map(|s| (t, s)))
-            .map(|(t, src)| t.badge_iter(src))
-            .into_iter()
-            .flatten()
-    }
-
-    pub fn get_tag(&self, tag: OwnedTag) -> Option<&str> {
-        match &self.tags {
-            Some(s) => s.get_value(&self.raw, tag),
-            None => None,
-        }
-    }
-
-    pub fn tags(&self) -> impl Iterator<Item = (OwnedTag, &str)> {
-        self.tags
-            .as_ref()
-            .map(|t| t.iter(self.raw()))
-            .into_iter()
-            .flatten()
-    }
-
-    #[cfg(feature = "chrono")]
-    pub fn get_timestamp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.tags.as_ref().and_then(|t| t.get_timestamp(&self.raw))
-    }
-
-    pub fn get_color(&self) -> Option<[u8; 3]> {
-        self.tags.as_ref().and_then(|t| t.get_color(&self.raw))
-    }
-
-    pub fn get_host(&self) -> Option<&str> {
-        match &self.prefix {
-            Some(o) => match o {
-                RawPrefix::OnlyHostname { host } => self.raw.get(host.clone()),
-                RawPrefix::Full {
-                    nickname: _,
-                    username: _,
-                    host,
-                } => self.raw.get(host.clone()),
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_nickname(&self) -> Option<&str> {
-        match &self.prefix {
-            Some(RawPrefix::Full {
-                nickname,
-                username: _,
-                host: _,
-            }) => self.raw.get(nickname.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn get_username(&self) -> Option<&str> {
-        match &self.prefix {
-            Some(RawPrefix::Full {
-                nickname: _,
-                username,
-                host: _,
-            }) => self.raw.get(username.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn get_param(&self, idx: usize) -> Option<&str> {
-        self.raw.get(self.params.get(idx)?.clone())
-    }
-
-    pub fn params(&self) -> Params<'_> {
-        Params {
-            src: &self.raw,
-            iter: self.params.iter(),
-        }
-    }
-
-    pub fn get_command(&self) -> IrcCommand {
-        self.command
-    }
-}
-
-impl FromStr for IrcMessage<'static> {
-    type Err = IrcMessageParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.to_owned())
-    }
-}
-
-impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
-    type Error = IrcMessageParseError;
-
-    #[inline]
-    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
+    fn get_parts(value: &str) -> Result<MessageParts, IrcMessageParseError> {
         use IrcMessageParseError as E;
 
         let raw = value;
@@ -166,7 +59,7 @@ impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
         let tags = if raw.starts_with('@') {
             let tag_end = memchr::memchr(b' ', raw[..].as_bytes())
                 .ok_or(IrcMessageStructureError::MissingTagSeparator)?;
-            let tags = RawIrcTags::new(&raw, 1, tag_end);
+            let tags = RawIrcTags::new(raw, 1, tag_end);
             pos = tag_end + 1;
             tags
         } else {
@@ -179,7 +72,7 @@ impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
             let prefix_end = memchr::memchr(b' ', &raw.as_bytes()[pos..])
                 .ok_or(IrcMessageStructureError::MissingPrefixSeparator)?
                 + pos;
-            let out = RawPrefix::parse(&raw, pos + 1, prefix_end);
+            let out = RawPrefix::parse(raw, pos + 1, prefix_end);
             pos = prefix_end + 1;
             out
         } else {
@@ -198,7 +91,7 @@ impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
 
         let command = IrcCommand::try_from(cmd)?;
 
-        let mut params = SmallVec::new();
+        let mut params = ParamVec::new();
 
         let mut last_param_start = pos;
         for i in memchr::memchr3_iter(b' ', b'\r', b'\n', raw[pos..].as_bytes()) {
@@ -217,8 +110,158 @@ impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
             last_param_start = pos + i + 1;
         }
 
+        Ok((tags, prefix, command, params))
+    }
+
+    #[cfg(feature = "connection")]
+    pub(crate) fn from_ws_message<'a>(ws_message: &'a WsMessage) -> IrcMessageParseIter<'a> {
+        let text = ws_message.to_text().unwrap_or_default();
+
+        IrcMessageParseIter::new(text)
+    }
+
+    /// Returns the message's raw string representation
+    pub fn inner(&self) -> &str {
+        &self.raw
+    }
+
+    /// Returns the raw string representation of the message
+    pub fn into_inner(self) -> String {
+        self.raw
+    }
+
+    /// Iterates over the user's badges
+    pub fn badges(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.tags
+            .as_ref()
+            .and_then(|t| t.get_raw_value(&self.raw, OwnedTag::Badges).map(|s| (t, s)))
+            .map(|(t, src)| t.badge_iter(src))
+            .into_iter()
+            .flatten()
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no value is present
+    /// - The value associated with the tag, with escape sequences removed.
+    ///
+    /// See also [IrcMessage::get_tag_raw()]
+    pub fn get_tag(&self, tag: OwnedTag) -> Option<Cow<'_, str>> {
+        match &self.tags {
+            Some(s) => s.get_value(&self.raw, tag),
+            None => None,
+        }
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no value is present
+    /// - The value associated with the tag, with escape sequences not removed
+    ///
+    /// See also [IrcMessage::get_tag()]
+    pub fn get_tag_raw(&self, tag: OwnedTag) -> Option<&str> {
+        match &self.tags {
+            Some(s) => s.get_raw_value(&self.raw, tag),
+            None => None,
+        }
+    }
+
+    /// Iterates over the tags of the message
+    pub fn tags(&self) -> impl Iterator<Item = (OwnedTag, &str)> {
+        self.tags
+            .as_ref()
+            .map(|t| t.iter(self.inner()))
+            .into_iter()
+            .flatten()
+    }
+
+    #[cfg(feature = "chrono")]
+    /// Returns the timestamp of the message in UTC time
+    pub fn get_timestamp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.tags.as_ref().and_then(|t| t.get_timestamp(&self.raw))
+    }
+
+    /// Returns the user's color as RGB8
+    pub fn get_color(&self) -> Option<[u8; 3]> {
+        self.tags.as_ref().and_then(|t| t.get_color(&self.raw))
+    }
+
+    /// Returns the message's hostname field in its prefix
+    pub fn get_host(&self) -> Option<&str> {
+        match &self.prefix {
+            Some(o) => match o {
+                RawPrefix::OnlyHostname { host } => self.raw.get(host.clone()),
+                RawPrefix::Full {
+                    nickname: _,
+                    username: _,
+                    host,
+                } => self.raw.get(host.clone()),
+            },
+            None => None,
+        }
+    }
+
+    /// Returns the message's nickname field in its prefix
+    pub fn get_nickname(&self) -> Option<&str> {
+        match &self.prefix {
+            Some(RawPrefix::Full {
+                nickname,
+                username: _,
+                host: _,
+            }) => self.raw.get(nickname.clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns the message's username field in its prefix
+    pub fn get_username(&self) -> Option<&str> {
+        match &self.prefix {
+            Some(RawPrefix::Full {
+                nickname: _,
+                username,
+                host: _,
+            }) => self.raw.get(username.clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns the nth parameter of the message
+    pub fn get_param(&self, idx: usize) -> Option<&str> {
+        self.raw.get(self.params.get(idx)?.clone())
+    }
+
+    /// Iterates over the message's parameters
+    pub fn params(&self) -> Params<'_> {
+        Params {
+            src: &self.raw,
+            iter: self.params.iter(),
+        }
+    }
+
+    /// Returns the message's [IrcCommand]
+    pub fn get_command(&self) -> IrcCommand {
+        self.command
+    }
+}
+
+impl FromStr for IrcMessage {
+    type Err = IrcMessageParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
+impl TryFrom<&str> for IrcMessage {
+    type Error = IrcMessageParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (tags, prefix, command, params) = Self::get_parts(value)?;
+
         Ok(Self {
-            raw,
+            raw: value.to_string(),
             tags,
             prefix,
             command,
@@ -227,34 +270,32 @@ impl<'a> TryFrom<Cow<'a, str>> for IrcMessage<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
+impl TryFrom<String> for IrcMessage {
     type Error = IrcMessageParseError;
 
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Borrowed(value))
-    }
-}
-
-impl TryFrom<String> for IrcMessage<'static> {
-    type Error = IrcMessageParseError;
-
+    #[inline]
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Owned(value))
+        let (tags, prefix, command, params) = Self::get_parts(&value)?;
+
+        Ok(Self {
+            raw: value,
+            tags,
+            prefix,
+            command,
+            params,
+        })
     }
 }
 
-impl Display for IrcMessage<'_> {
+impl Display for IrcMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &*self.raw)
     }
 }
 
-impl ToIrcMessage for IrcMessage<'_> {
+impl ToIrcMessage for IrcMessage {
     fn to_message(self) -> String {
-        match self.raw {
-            Cow::Borrowed(b) => b.to_string(),
-            Cow::Owned(o) => o,
-        }
+        self.raw
     }
 
     fn get_command(&self) -> IrcCommand {
@@ -262,8 +303,36 @@ impl ToIrcMessage for IrcMessage<'_> {
     }
 }
 
+impl PartialEq<IrcMessage> for IrcMessage {
+    fn eq(&self, other: &IrcMessage) -> bool {
+        // is this correct??
+        // if self.raw.len() != other.raw.len() { return false }
+
+        if let (Some(lhs), Some(rhs)) = (&self.tags, &other.tags) {
+            if lhs.tags.len() != rhs.tags.len() { return false }
+            for (kl, vl) in &lhs.tags {
+                let (kl, vl) = (kl.to_string(&self.raw), &self.raw[vl.clone()]);
+                let rhs_has_lhs = rhs.tags
+                    .iter()
+                    .any(|(kr,vr)| {
+                        let (kr, vr) = (kr.to_string(&other.raw), &other.raw[vr.clone()]);
+                        kl == kr && vl == vr
+                    });
+                if !rhs_has_lhs { return false };
+            }
+        }
+        self.get_host() == other.get_host()
+        && self.get_nickname() == other.get_nickname()
+        && self.get_username() == other.get_username()
+        && self.command == other.command
+        && self.params().eq(other.params())
+    }
+}
+
+impl Eq for IrcMessage{}
+
 #[cfg(all(feature = "serde", feature = "unstable"))]
-impl Serialize for IrcMessage<'_> {
+impl Serialize for IrcMessage {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -361,6 +430,7 @@ impl Serialize for IrcMessage<'_> {
     }
 }
 
+/// Iterator over an [IrcMessage]'s params
 pub struct Params<'a> {
     src: &'a str,
     iter: Iter<'a, Range<usize>>,
@@ -375,6 +445,7 @@ impl<'a> Iterator for Params<'a> {
 }
 
 #[test]
+#[cfg(feature = "connection")]
 fn from_ws_message() {
     const MSGS: &str = "@badge-info=;badges=moments/2;client-nonce=9297a96d510091fa87c81eaa9e5bb8e3;color=#E4E5FF;display-name=MELLOWFLEUR;emotes=;first-msg=0;flags=;id=1ada6902-aafe-452a-8651-1fe711ddd7d1;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318910689;turbo=0;user-id=45179149;user-type= :mellowfleur!mellowfleur@mellowfleur.tmi.twitch.tv PRIVMSG #xqc :yes\r
 @badge-info=;badges=moments/2;client-nonce=da0ef47ebddf148067c685599dd6bc90;color=#8A2BE2;display-name=lonelythomas;emotes=;first-msg=0;flags=;id=91c3b354-95b7-4509-a337-3b86c194b141;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318910693;turbo=0;user-id=217061103;user-type= :lonelythomas!lonelythomas@lonelythomas.tmi.twitch.tv PRIVMSG #xqc :LETHIMCOOK\r

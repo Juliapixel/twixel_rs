@@ -1,6 +1,8 @@
 use std::{borrow::Cow, fmt::Write};
 
-use crate::IrcMessage;
+use hashbrown::HashMap;
+
+use crate::irc_message::PrivMsg;
 
 use super::{ToIrcMessage, command::IrcCommand, prefix::OwnedPrefix, tags::OwnedTag};
 
@@ -10,7 +12,7 @@ pub struct MessageBuilder<'a> {
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_tags"))]
     #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_tags"))]
     #[cfg_attr(feature = "serde", serde(borrow))]
-    pub tags: Vec<(OwnedTag, Cow<'a, str>)>,
+    pub tags: HashMap<OwnedTag, Cow<'a, str>>,
     pub prefix: Option<OwnedPrefix>,
     pub command: IrcCommand,
     #[cfg_attr(feature = "serde", serde(borrow))]
@@ -44,19 +46,19 @@ impl std::fmt::Debug for MessageBuilder<'_> {
 }
 
 impl<'a> MessageBuilder<'a> {
+    /// Make a new [MessageBuilder] with the Given [IrcCommand]
     pub fn new(command: IrcCommand) -> Self {
         Self {
-            tags: vec![],
+            tags: HashMap::new(),
             prefix: None,
             command,
             params: vec![],
         }
     }
 
-    pub fn reply(msg: &'a IrcMessage<'_>, message: &'a str) -> Result<Self, MessageBuilderError> {
-        if msg.get_command() != IrcCommand::PrivMsg {
-            return Err(MessageBuilderError::WrongMessageType(msg.get_command()));
-        }
+    /// Convenience method to make a new `PRIVMSG` that reponds to another `PRIVMSG`,
+    /// using Twitch's `reply-parent-msg-id` tag.
+    pub fn reply(msg: &'a PrivMsg, message: &'a str) -> Result<Self, MessageBuilderError> {
         let Some(parent_id) = msg
             .get_tag(OwnedTag::ReplyThreadParentMsgId)
             .or(msg.get_tag(OwnedTag::Id))
@@ -69,6 +71,7 @@ impl<'a> MessageBuilder<'a> {
         )
     }
 
+    /// Build a finished IRC message in string form
     pub fn build(self) -> String {
         let mut out = String::new();
 
@@ -79,7 +82,7 @@ impl<'a> MessageBuilder<'a> {
             } else {
                 write!(&mut out, ";").unwrap();
             }
-            write!(&mut out, "{}={}", Into::<&str>::into(&tag.0), tag.1).unwrap()
+            write!(&mut out, "{}={}", &tag.0, tag.1).unwrap()
         }
 
         if !self.tags.is_empty() {
@@ -105,21 +108,25 @@ impl<'a> MessageBuilder<'a> {
         out
     }
 
+    /// Add new tag-value pair
     pub fn add_tag(mut self, tag: OwnedTag, value: impl Into<Cow<'a, str>>) -> Self {
-        self.tags.push((tag, value.into()));
+        self.tags.insert(tag, value.into());
         self
     }
 
+    /// Add new param
     pub fn add_param(mut self, param: impl Into<Cow<'a, str>>) -> Self {
         self.params.push(param.into());
         self
     }
 
+    /// Set message prefix
     pub fn prefix(mut self, prefix: OwnedPrefix) -> Self {
         let _ = self.prefix.insert(prefix);
         self
     }
 
+    /// Convenience method to make a new `PRIVMSG` message
     pub fn privmsg(channel: &'a str, message: &str) -> Self {
         let chan_param = if channel.starts_with('#') {
             Cow::Borrowed(channel)
@@ -128,13 +135,17 @@ impl<'a> MessageBuilder<'a> {
         };
         Self::new(IrcCommand::PrivMsg)
             .add_param(chan_param)
-            .add_param(Cow::Owned(format!(":{message}")))
+            .add_param(format!(":{message}"))
     }
 
+    /// Convenience method to repond to data from a `PING`
+    ///
+    /// `data` MUST be the `PING` message's last param
     pub fn pong(data: &'a str) -> Self {
-        Self::new(IrcCommand::Pong).add_param(Cow::Borrowed(data))
+        Self::new(IrcCommand::Pong).add_param(data)
     }
 
+    /// Convenience method to make a new `JOIN` message for many channels
     pub fn join(channels: impl IntoIterator<Item = impl std::fmt::Display>) -> Self {
         let mut channel_list = String::new();
         for (idx, chan) in channels.into_iter().enumerate() {
@@ -146,6 +157,7 @@ impl<'a> MessageBuilder<'a> {
         Self::new(IrcCommand::Join).add_param(channel_list)
     }
 
+    /// Convenience method to make a new `PART` message for many channels
     pub fn part(channels: impl IntoIterator<Item = impl std::fmt::Display>) -> Self {
         let mut channel_list = String::new();
         for (idx, chan) in channels.into_iter().enumerate() {
@@ -157,12 +169,14 @@ impl<'a> MessageBuilder<'a> {
         Self::new(IrcCommand::Part).add_param(channel_list)
     }
 
+    /// Convenience method to make a new `CAP REQ` message for Twitch
     pub fn cap_req() -> Self {
         Self::new(IrcCommand::Cap)
-            .add_param(Cow::Borrowed("REQ"))
-            .add_param(Cow::Borrowed(":twitch.tv/commands twitch.tv/tags"))
+            .add_param("REQ")
+            .add_param(":twitch.tv/commands twitch.tv/tags")
     }
 
+    /// Convert from a [MessageBuilder] using borrowed data to using owned data
     pub fn to_owned(self) -> MessageBuilder<'static> {
         let mut new = MessageBuilder::<'static>::new(self.command);
         new.params = self
@@ -192,28 +206,28 @@ impl ToIrcMessage for MessageBuilder<'_> {
 
 #[cfg(feature = "serde")]
 fn serialize_tags<S: serde::Serializer>(
-    value: &Vec<(OwnedTag, Cow<'_, str>)>,
+    value: &HashMap<OwnedTag, Cow<'_, str>>,
     ser: S,
 ) -> Result<S::Ok, S::Error> {
-    ser.collect_map(value.iter().map(|(k, v)| (k, v)))
+    ser.collect_map(value.iter())
 }
 
 #[cfg(feature = "serde")]
 fn deserialize_tags<'de, D: serde::Deserializer<'de>>(
     deser: D,
-) -> Result<Vec<(OwnedTag, Cow<'de, str>)>, D::Error> {
+) -> Result<HashMap<OwnedTag, Cow<'de, str>>, D::Error> {
     struct MapVisitor;
     impl<'v> serde::de::Visitor<'v> for MapVisitor {
-        type Value = Vec<(OwnedTag, Cow<'v, str>)>;
+        type Value = HashMap<OwnedTag, Cow<'v, str>>;
 
         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
         where
             A: serde::de::MapAccess<'v>,
         {
-            let mut tags = Vec::new();
+            let mut tags = HashMap::new();
 
             while let Some((key, value)) = map.next_entry()? {
-                tags.push((key, value));
+                tags.insert(key, value);
             }
 
             Ok(tags)
@@ -228,9 +242,13 @@ fn deserialize_tags<'de, D: serde::Deserializer<'de>>(
 }
 #[test]
 fn message_builder() {
+    use crate::IrcMessage;
+
     const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi hello there!\r\n";
 
-    let owned = MessageBuilder::new(IrcCommand::PrivMsg)
+    let test_parsed: IrcMessage = TEST_MESSAGE.parse().unwrap();
+
+    let built = MessageBuilder::new(IrcCommand::PrivMsg)
         .add_tag(OwnedTag::Unknown("tag1".into()), "val1")
         .add_tag(OwnedTag::Unknown("tag2".into()), "val2")
         .add_tag(OwnedTag::Unknown("tag3".into()), "val3")
@@ -240,7 +258,10 @@ fn message_builder() {
             host: "juliapixel.com".into(),
         })
         .add_param("#juliapixel")
-        .add_param(":hi hello there!");
+        .add_param(":hi hello there!")
+        .build();
 
-    assert_eq!(owned.build(), TEST_MESSAGE);
+    let built_parsed: IrcMessage = built.parse().unwrap();
+
+    assert_eq!(built_parsed, test_parsed);
 }

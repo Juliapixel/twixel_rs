@@ -3,11 +3,10 @@ use std::task::Poll;
 use either::Either;
 use futures_util::{FutureExt, Sink, SinkExt, Stream, future::select_all};
 use hashbrown::HashMap;
-use smallvec::SmallVec;
 
 use crate::{
-    auth::Auth,
-    irc_message::{ToIrcMessage, builder::MessageBuilder, message::IrcMessage},
+    auth::AuthProvider,
+    irc_message::{builder::MessageBuilder, message::IrcMessage, ToIrcMessage},
 };
 
 use super::{Connection, error::PoolError};
@@ -15,17 +14,17 @@ use super::{Connection, error::PoolError};
 // current limit
 const MAX_CHANNELS_PER_CONNECTION: usize = 100;
 
-pub struct ConnectionPool {
-    pool: Vec<Connection>,
+pub struct ConnectionPool<A: AuthProvider + Clone> {
+    pool: Vec<Connection<A>>,
     // relation between channel and connection index in the pool
     channels: HashMap<String, Option<usize>>,
-    auth_info: Auth,
+    auth_info: Box<A>,
 }
 
-impl ConnectionPool {
+impl<A: AuthProvider + Clone> ConnectionPool<A> {
     pub async fn new(
         channels: impl IntoIterator<Item = impl Into<String>>,
-        auth: Auth,
+        auth: A,
     ) -> Result<Self, PoolError> {
         let mut pool = Vec::new();
         let mut channel_list = HashMap::new();
@@ -43,7 +42,7 @@ impl ConnectionPool {
         Ok(Self {
             pool,
             channels: channel_list,
-            auth_info: auth,
+            auth_info: Box::new(auth),
         })
     }
 
@@ -76,7 +75,7 @@ impl ConnectionPool {
             }
             None => {
                 let mut conn =
-                    Connection::new(core::iter::once(channel_login), self.auth_info.clone());
+                    Connection::new(core::iter::once(channel_login), (*self.auth_info).clone());
                 conn.start().await?;
                 self.pool.push(conn);
                 self.channels
@@ -132,8 +131,8 @@ impl ConnectionPool {
     }
 }
 
-impl Stream for ConnectionPool {
-    type Item = Result<(SmallVec<[IrcMessage<'static>; 4]>, usize), PoolError>;
+impl<A: AuthProvider + Clone> Stream for ConnectionPool<A> {
+    type Item = Result<(IrcMessage, usize), PoolError>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -144,7 +143,7 @@ impl Stream for ConnectionPool {
         }
 
         if let Poll::Ready((received, idx, _futures)) =
-            select_all(self.pool.iter_mut().map(|c| c.receive().boxed())).poll_unpin(cx)
+            select_all(self.pool.iter_mut().map(|c| Box::pin(c.receive()))).poll_unpin(cx)
         {
             let received = received.map_err(Into::<PoolError>::into);
             Poll::Ready(Some(received.map(|r| (r, idx))))
@@ -154,7 +153,7 @@ impl Stream for ConnectionPool {
     }
 }
 
-impl<'a> Sink<(Either<usize, &str>, MessageBuilder<'a>)> for ConnectionPool {
+impl<T: ToIrcMessage, A: AuthProvider + Clone> Sink<(Either<usize, &str>, T)> for ConnectionPool<A> {
     type Error = PoolError;
 
     fn poll_ready(
@@ -163,7 +162,7 @@ impl<'a> Sink<(Either<usize, &str>, MessageBuilder<'a>)> for ConnectionPool {
     ) -> Poll<Result<(), Self::Error>> {
         let mut readied = 0;
         for i in self.pool.iter_mut() {
-            match futures_util::ready!(i.poll_ready_unpin(cx)) {
+            match futures_util::ready!(<Connection<A> as SinkExt<T>>::poll_ready_unpin(i, cx)) {
                 Ok(()) => readied += 1,
                 Err(e) => return Poll::Ready(Err(e.into())),
             }
@@ -179,7 +178,7 @@ impl<'a> Sink<(Either<usize, &str>, MessageBuilder<'a>)> for ConnectionPool {
 
     fn start_send(
         mut self: std::pin::Pin<&mut Self>,
-        (target, msg): (Either<usize, &str>, MessageBuilder<'a>),
+        (target, msg): (Either<usize, &str>, T),
     ) -> Result<(), Self::Error> {
         let conn_idx = match target {
             Either::Left(idx) => idx,
@@ -200,7 +199,7 @@ impl<'a> Sink<(Either<usize, &str>, MessageBuilder<'a>)> for ConnectionPool {
     ) -> Poll<Result<(), Self::Error>> {
         let mut flushed = 0;
         for i in self.pool.iter_mut() {
-            match futures_util::ready!(i.poll_flush_unpin(cx)) {
+            match futures_util::ready!(<Connection<A> as SinkExt<T>>::poll_flush_unpin(i, cx)) {
                 Ok(()) => flushed += 1,
                 Err(e) => return Poll::Ready(Err(e.into())),
             }
@@ -220,7 +219,7 @@ impl<'a> Sink<(Either<usize, &str>, MessageBuilder<'a>)> for ConnectionPool {
     ) -> Poll<Result<(), Self::Error>> {
         let mut closed = 0;
         for i in self.pool.iter_mut() {
-            match futures_util::ready!(i.poll_close_unpin(cx)) {
+            match futures_util::ready!(<Connection<A> as SinkExt<T>>::poll_close_unpin(i, cx)) {
                 Ok(()) => closed += 1,
                 Err(e) => return Poll::Ready(Err(e.into())),
             }

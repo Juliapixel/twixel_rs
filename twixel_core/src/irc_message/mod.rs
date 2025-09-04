@@ -10,9 +10,12 @@ pub use command::IrcCommand;
 pub use message::IrcMessage;
 pub use semantic::*;
 
+/// Trait for types which can be sent over an IRC connection
 pub trait ToIrcMessage {
+    /// Convert to a valid IRC message
     fn to_message(self) -> String;
 
+    /// Get the message's IRC command
     fn get_command(&self) -> IrcCommand;
 }
 
@@ -21,30 +24,44 @@ pub mod error {
 
     use super::{command::IrcCommandError, tags::IRCTagParseError};
 
+    /// Errors that may occur when parsing an [IrcMessage](crate::IrcMessage)
     #[derive(Debug, Error)]
     pub enum IrcMessageParseError {
+        /// Error when parsing the IRCv3 tags of the message
         #[error("failed to parse message due to bad tags: {0}")]
         TagParseError(#[from] IRCTagParseError),
+        /// The message's prefix could not be found
         #[error("failed to parse message due to a missing prefix")]
         NoPrefix,
+        /// The message's command could not be found
         #[error("failed to parse message due to a missing command")]
         NoCommand,
+        /// The message's command could not be parsed
         #[error(transparent)]
         CommandParseError(#[from] IrcCommandError),
+        /// There was no message to parse
         #[error("failed to parse message due to a missing message")]
         NoMessage,
+        /// There was an error while parsing the message's structure
         #[error(transparent)]
         StructureError(#[from] IrcMessageStructureError),
+        /// The provided message was an empty string
         #[error("failed to parse message due to it being empty")]
         Empty,
     }
 
+    /// Structural errors that may occur when parsing an [IrcMessage](crate::IrcMessage)
     #[derive(Debug, Error)]
     pub enum IrcMessageStructureError {
+        /// There was no space character separating the tags segment from the rest
+        /// of the message
         #[error("missing separator from tags")]
         MissingTagSeparator,
+        /// There was no space character separating the prefix segment from the rest
+        /// of the message
         #[error("missing separator from prefix")]
         MissingPrefixSeparator,
+        /// There was no CRLF sequence at the end of the message
         #[error("missing final CRLF sequence in message")]
         MissingCrlf,
     }
@@ -53,10 +70,8 @@ pub mod error {
 #[cfg(test)]
 mod tests {
     use crate::irc_message::{
-        builder::MessageBuilder,
         command::IrcCommand,
         message::IrcMessage,
-        prefix::OwnedPrefix,
         tags::{OwnedTag, RawTag},
     };
 
@@ -126,38 +141,20 @@ mod tests {
     #[cfg(all(feature = "serde", feature = "unstable"))]
     #[test]
     fn roundtrip_deserialization() {
+        use crate::MessageBuilder;
+
         const TEST_MESSAGE: &str = "@tag1=val1;tag2=val2;tag3=val3 :juliapixel!julia@juliapixel.com PRIVMSG #juliapixel :hi hello there!\r\n";
         let parsed: IrcMessage = TEST_MESSAGE.parse().unwrap();
 
-        let owned = MessageBuilder::new(IrcCommand::PrivMsg)
-            .add_tag(OwnedTag::Unknown("tag1".into()), "val1")
-            .add_tag(OwnedTag::Unknown("tag2".into()), "val2")
-            .add_tag(OwnedTag::Unknown("tag3".into()), "val3")
-            .prefix(OwnedPrefix::Full {
-                nickname: "juliapixel".into(),
-                username: "julia".into(),
-                host: "juliapixel.com".into(),
-            })
-            .add_param("#juliapixel")
-            .add_param(":hi hello there!");
-
         let json_parsed = serde_json::to_string(&parsed).unwrap();
-        assert_eq!(
-            json_parsed,
-            serde_json::to_string(&owned).unwrap(),
-            "the OwnedIrcMessage and IrcMessage serde::Serialize implementations don't match"
-        );
 
         let deserialized_owned: MessageBuilder =
             serde_json::from_str(&json_parsed).expect(&json_parsed);
+
+        let rebuilt = IrcMessage::new(deserialized_owned.build()).unwrap();
         assert_eq!(
-            deserialized_owned, owned,
+            parsed, rebuilt,
             "an OwnedIrcMessage could not be deserialized from a serialized IrcMessage"
         );
-
-        assert_eq!(
-            serde_json::to_string(&deserialized_owned).unwrap(),
-            json_parsed
-        )
     }
 }

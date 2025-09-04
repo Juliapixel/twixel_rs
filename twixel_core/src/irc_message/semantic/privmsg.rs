@@ -2,7 +2,7 @@ use crate::{MessageBuilder, irc_message::tags::OwnedTag, user::ChannelRoles};
 
 use super::{PrivMsg, util::msg_from_param};
 
-impl PrivMsg<'_> {
+impl PrivMsg {
     // TODO: treat repeat message avoiders
     pub fn message_text(&self) -> &str {
         let msg_param = self
@@ -46,11 +46,11 @@ impl PrivMsg<'_> {
     }
 
     pub fn sender_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::UserId)
+        self.get_tag_raw(OwnedTag::UserId)
     }
 
     pub fn channel_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::RoomId)
+        self.get_tag_raw(OwnedTag::RoomId)
     }
 
     pub fn channel_login(&self) -> &str {
@@ -67,8 +67,8 @@ impl PrivMsg<'_> {
 
     /// message ID to be used in the ReplyParentMsgId tag when replying
     pub fn reply_to_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::ReplyThreadParentMsgId)
-            .or_else(|| self.get_tag(OwnedTag::Id))
+        self.get_tag_raw(OwnedTag::ReplyThreadParentMsgId)
+            .or_else(|| self.get_tag_raw(OwnedTag::Id))
     }
 
     pub fn reply_to(&self, msg: &str) -> MessageBuilder<'_> {

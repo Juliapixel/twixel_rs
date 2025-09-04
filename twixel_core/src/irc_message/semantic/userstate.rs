@@ -2,7 +2,7 @@ use crate::{irc_message::tags::OwnedTag, user::ChannelRoles};
 
 use super::UserState;
 
-impl UserState<'_> {
+impl UserState {
     pub fn channel_login(&self) -> &str {
         self.get_param(0)
             .expect("malformed channel login param")

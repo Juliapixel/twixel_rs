@@ -1,4 +1,4 @@
-use std::{fmt::Display, ops::Range};
+use std::{convert::Infallible, fmt::Display, ops::Range, str::FromStr};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -38,36 +38,49 @@ impl RawPrefix {
     }
 }
 
+/// The "prefix" part of the IRC message
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedPrefix {
+    /// A prefix which only specifies the hostname
     OnlyHostname {
+        /// The hostname
         host: String,
     },
+    /// A full prefix
     Full {
+        /// The nickname segment
         nickname: String,
+        /// The username segment
         username: String,
+        /// The hostname
         host: String,
     },
+}
+
+impl FromStr for OwnedPrefix {
+    type Err = Infallible;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.split_once('@').and_then(|(l,r)| Some((l.split_once('!')?, r))) {
+            Some(((nickname, username), host)) => {
+                Ok(Self::Full {
+                    nickname: nickname.into(),
+                    username: username.into(),
+                    host: host.into(),
+                })
+            }
+            None => Ok(Self::OnlyHostname {
+                host: value.into(),
+            }),
+        }
+    }
 }
 
 impl From<&str> for OwnedPrefix {
     #[inline]
     fn from(value: &str) -> Self {
-        match value.split_once('@') {
-            Some(splits) => {
-                let (nickname, username) = splits.0.split_once('!').unwrap();
-                let hostname = splits.1.to_string();
-                Self::Full {
-                    nickname: String::from(nickname),
-                    username: String::from(username),
-                    host: hostname,
-                }
-            }
-            None => Self::OnlyHostname {
-                host: value.to_string(),
-            },
-        }
+        value.parse().unwrap()
     }
 }
 

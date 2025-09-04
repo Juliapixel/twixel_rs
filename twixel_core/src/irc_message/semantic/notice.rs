@@ -2,7 +2,7 @@ use crate::irc_message::tags::OwnedTag;
 
 use super::{Notice, util::msg_from_param};
 
-impl Notice<'_> {
+impl Notice {
     pub fn message_text(&self) -> &str {
         let msg_param = self
             .inner
@@ -24,7 +24,7 @@ impl Notice<'_> {
     }
 
     pub fn target_user_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::TargetUserId)
+        self.get_tag_raw(OwnedTag::TargetUserId)
     }
 
     pub fn kind(&self) -> Option<Result<NoticeKind, NoticeParseError>> {

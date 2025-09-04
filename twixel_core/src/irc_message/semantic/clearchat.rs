@@ -7,17 +7,17 @@ pub enum TimeoutDuration {
     Temporary(std::time::Duration),
 }
 
-impl ClearChat<'_> {
+impl ClearChat {
     pub fn target_msg_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::TargetMsgId)
+        self.get_tag_raw(OwnedTag::TargetMsgId)
     }
 
     pub fn target_user_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::TargetUserId)
+        self.get_tag_raw(OwnedTag::TargetUserId)
     }
 
     pub fn room_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::RoomId)
+        self.get_tag_raw(OwnedTag::RoomId)
     }
 
     pub fn duration(&self) -> TimeoutDuration {
