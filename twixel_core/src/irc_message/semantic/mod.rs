@@ -1,12 +1,19 @@
-//! semantic wrappers around each kind of IRC message command, most of these don't
+//! Semantic wrappers around each kind of IRC message command, most of these don't
 //! even do anything useful, but are there for completeness' sake
 
-mod clearchat;
-mod clearmsg;
-mod notice;
-mod ping;
-mod privmsg;
-mod userstate;
+/// Utilities related to the [CLEARCHAT](ClearChat) message kind
+pub mod clearchat;
+/// Utilities related to the [CLEARMSG](ClearMsg) message kind
+pub mod clearmsg;
+/// Utilities related to the [NOTICE](Notice) message kind
+pub mod notice;
+/// Utilities related to the [PING](Ping) message kind
+pub mod ping;
+/// Utilities related to the [PRIVMSG](PrivMsg) message kind
+pub mod privmsg;
+/// Utilities related to the [USERSTATE](UserState) message kind
+pub mod userstate;
+
 mod util;
 
 use std::fmt::Display;
@@ -15,11 +22,15 @@ use either::Either;
 
 use crate::IrcMessage;
 
+/// Trait for the semantic wrappers around the different message types
 pub trait SemanticIrcMessage: Sized + private::Sealed {
+    /// Take the untyped [IrcMessage]
     fn to_inner(self) -> IrcMessage;
 
+    /// Take a reference to the untyped [IrcMessage]
     fn inner(&self) -> &IrcMessage;
 
+    /// Convert from an untyped [IrcMessage]
     #[allow(clippy::result_large_err, reason = "intended")]
     fn from_message(msg: IrcMessage) -> Result<Self, IrcMessage>;
 }
@@ -121,6 +132,7 @@ macro_rules! impl_semantic {
 
         /// enum containing all semantic wrappers around [crate::IrcMessage]
         #[derive(Debug, Clone)]
+        #[allow(missing_docs)]
         pub enum AnySemantic {
             $($cmd($cmd)),+
         }
@@ -137,7 +149,6 @@ macro_rules! impl_semantic {
             fn from(value: IrcMessage) -> Self {
                 match value.get_command() {
                     $($crate::irc_message::command::IrcCommand::$cmd => Self::$cmd($cmd::from_message(value).unwrap()),)+
-                    // _ => todo!()
                 }
             }
         }

@@ -4,8 +4,7 @@ use futures::StreamExt;
 use hashbrown::HashMap;
 use tokio::signal::unix::{SignalKind, signal};
 use twixel_core::{
-    Auth, ConnectionPool, MessageBuilder,
-    irc_message::{AnySemantic, PrivMsg, tags::OwnedTag},
+    auth::OAuth, irc_message::{tags::OwnedTag, AnySemantic, PrivMsg}, ConnectionPool, MessageBuilder
 };
 
 use crate::{
@@ -41,7 +40,7 @@ impl BotData {
 }
 
 pub struct Bot {
-    conn_pool: ConnectionPool,
+    conn_pool: ConnectionPool<OAuth>,
     commands: Vec<Command>,
     catchall: Vec<DynHandler>,
     data: BotData,
@@ -87,7 +86,7 @@ impl Bot {
         Self {
             conn_pool: ConnectionPool::new(
                 core::iter::empty::<String>(),
-                Auth::OAuth { username, token },
+                OAuth{ nick: username, oauth: token },
             )
             .await
             .unwrap(),
@@ -123,7 +122,7 @@ impl Bot {
 
     /// Returns whether to shut down or not
     async fn handle_cmd(
-        conn_pool: &mut ConnectionPool,
+        conn_pool: &mut ConnectionPool<OAuth>,
         cmd: BotCommand,
         last_sent_msg: &mut HashMap<String, String>,
     ) -> bool {
@@ -202,19 +201,17 @@ impl Bot {
             loop {
                 tokio::select! {
                     // Handle message received from twitch IRC
-                    Some(recv) = self.conn_pool.next() => {
-                        let idx = recv.as_ref().map(|r| r.1).ok();
-                        for msg in recv.map(|r| r.0).into_iter().flatten() {
-                            let cx = HandlerContext {
-                                msg: msg.into(),
-                                connection_idx: idx.unwrap(),
-                                bot_tx: self.cmd_tx.clone(),
-                                data_store: Arc::clone(&data_store)
-                            };
+                    Some(msg) = self.conn_pool.next() => {
+                        let (msg, idx) = msg.unwrap();
+                        let cx = HandlerContext {
+                            msg: msg.into(),
+                            connection_idx: idx,
+                            bot_tx: self.cmd_tx.clone(),
+                            data_store: Arc::clone(&data_store)
+                        };
 
-                            let new_tx = tx.clone();
-                            tokio::spawn(async move { new_tx.send(cx).await.unwrap(); });
-                        }
+                        let new_tx = tx.clone();
+                        tokio::spawn(async move { new_tx.send(cx).await.unwrap(); });
                     }
                     // Handle bot actions
                     cmd = self.cmd_rx.recv() => { match cmd {
@@ -301,7 +298,7 @@ async fn bot_worker(
                 continue;
             }
             msg => {
-                log::warn!("untreated message kind: {:?}", msg.raw());
+                log::warn!("untreated message kind: {:?}", msg.inner());
                 continue;
             }
         }

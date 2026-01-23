@@ -13,7 +13,7 @@ use crate::bot::BotData;
 
 pub struct GuardContext<'a> {
     pub data_store: &'a BotData,
-    pub message: &'a AnySemantic<'a>,
+    pub message: &'a AnySemantic,
 }
 
 impl<'a> GuardContext<'a> {
@@ -21,7 +21,7 @@ impl<'a> GuardContext<'a> {
         self.data_store
     }
 
-    pub fn message(&self) -> &AnySemantic<'a> {
+    pub fn message(&self) -> &AnySemantic {
         self.message
     }
 }

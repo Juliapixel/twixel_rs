@@ -37,7 +37,7 @@ fn find_escape_seq(val: &str) -> Option<(Escape, Range<usize>)> {
     }
 }
 
-fn unescape_tag_value(val: &str) -> Cow<'_, str> {
+pub(crate) fn unescape_tag_value(val: &str) -> Cow<'_, str> {
     let mut pos = 0;
     let mut out = String::with_capacity(val.len());
     while let Some((esc, range)) = find_escape_seq(&val[pos..]) {
@@ -61,7 +61,7 @@ fn unescape_tag_value(val: &str) -> Cow<'_, str> {
     }
 }
 
-fn escape_tag_value(val: &str) -> Cow<'_, str> {
+pub(crate) fn escape_tag_value(val: &str) -> Cow<'_, str> {
     let mut last = 0;
     let mut out = String::new();
     for (idx, escapable) in val.match_indices(['\\', ' ', '\r', '\n', ';']) {

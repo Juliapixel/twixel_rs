@@ -11,12 +11,15 @@ bitflags::bitflags! {
         const Subscriber = 1 << 2;
         /// Whether the user is the broadcaster
         const Broadcaster = 1 << 3;
+        /// Whether the user is the lead moderator
+        const LeadModerator = 1 << 4;
     }
 }
 
 impl ChannelRoles {
     const PRIVILEGED_MASK: ChannelRoles = ChannelRoles::empty()
         .union(ChannelRoles::Moderator)
+        .union(ChannelRoles::LeadModerator)
         .union(ChannelRoles::Vip)
         .union(ChannelRoles::Broadcaster);
 

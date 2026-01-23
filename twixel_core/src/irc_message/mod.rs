@@ -19,6 +19,7 @@ pub trait ToIrcMessage {
     fn get_command(&self) -> IrcCommand;
 }
 
+/// Error types associated with [IrcMessage] and related operations
 pub mod error {
     use thiserror::Error;
 

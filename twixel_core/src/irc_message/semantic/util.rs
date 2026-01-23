@@ -3,8 +3,8 @@ pub fn msg_from_param(param_str: &str) -> &str {
         return "";
     };
 
-    if text.starts_with('\u{0001}') && text.ends_with('\u{0001}') && text.len() > 1 {
-        &text[1..(text.len() - 1)]
+    if text.starts_with("\u{0001}ACTION ") && text.ends_with('\u{0001}') {
+        &text[("\u{0001}ACTION ".len())..(text.len() - 1)]
     } else {
         text
     }

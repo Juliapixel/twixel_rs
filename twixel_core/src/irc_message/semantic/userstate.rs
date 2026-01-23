@@ -10,6 +10,7 @@ impl UserState {
             .1
     }
 
+    /// Returns the user's role in a chanel, depending on tags and badges
     pub fn roles(&self) -> ChannelRoles {
         let mut roles = ChannelRoles::empty();
 
@@ -26,6 +27,11 @@ impl UserState {
                 .unwrap_or(false),
         );
         roles.set(
+            ChannelRoles::LeadModerator,
+            self.badges()
+                .any(|(n, _)| n == "lead_moderator"),
+        );
+        roles.set(
             ChannelRoles::Subscriber,
             self.get_tag(OwnedTag::Subscriber)
                 .map(|t| t == "1")
@@ -39,7 +45,9 @@ impl UserState {
         roles
     }
 
+    /// Returns whether the user is a moderator or lead moderator
     pub fn is_mod(&self) -> bool {
         self.get_tag(OwnedTag::Mod).is_some()
+        || self.badges().any(|(k, _)| k == "lead_moderator" || k == "moderator")
     }
 }

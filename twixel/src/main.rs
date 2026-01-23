@@ -12,7 +12,7 @@ use guard::UserGuard;
 use handler::{Command, CommandBuilder, response::BotResponse};
 use sqlx::{Sqlite, sqlite::SqliteConnectOptions};
 
-use crate::commands::gpt;
+use crate::commands::{gpt, raw};
 
 mod anymap;
 mod bot;
@@ -130,10 +130,11 @@ async fn main() -> Result<(), anyhow::Error> {
         .add_command(Command::new(bread_fact, vec!["breadfact".into()], "%"))
         .add_command(Command::new(argtest, vec!["argtest".into()], "%"))
         .add_command(Command::new(test, vec!["test".into()], "%"))
+        .add_command(Command::new(raw, vec!["raw".into()], "%"))
         .add_command(
             CommandBuilder::new(
                 async || ("shutting down!", BotResponse::Shutdown),
-                vec!["strdbg".into()],
+                vec!["shutdown".into()],
                 "%",
             )
             .and(UserGuard::allow([JULIA_ID]))

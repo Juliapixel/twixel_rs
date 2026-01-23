@@ -17,7 +17,7 @@ pub mod response;
 
 #[derive(Clone)]
 pub struct HandlerContext {
-    pub msg: AnySemantic<'static>,
+    pub msg: AnySemantic,
     pub connection_idx: usize,
     pub bot_tx: tokio::sync::mpsc::Sender<BotCommand>,
     pub data_store: Arc<BotData>,
@@ -213,7 +213,7 @@ impl Command {
         }
     }
 
-    async fn handle_resp(resp: BotResponse, privmsg: &AnySemantic<'_>, sender: Sender<BotCommand>) {
+    async fn handle_resp(resp: BotResponse, privmsg: &AnySemantic, sender: Sender<BotCommand>) {
         match resp {
             BotResponse::Message(msg) => {
                 if let AnySemantic::PrivMsg(privmsg) = privmsg {
@@ -222,6 +222,11 @@ impl Command {
                         .await
                         .unwrap();
                 }
+            }
+            BotResponse::Raw(raw) => {
+                sender.send(BotCommand::SendRawIrc(raw, 0))
+                    .await
+                    .unwrap()
             }
             BotResponse::Join(chan) => {
                 sender.send(BotCommand::JoinChannel(chan)).await.unwrap();

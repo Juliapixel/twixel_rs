@@ -153,10 +153,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
             Type::String => val
                 .as_string()
                 .map(|i| {
-                    format!(
-                        "\"{}\"",
-                        i.to_string().unwrap_or("invalid UTF-8 string".into())
-                    )
+                    i.to_string().unwrap_or("invalid UTF-8 string".into())
                 })
                 .unwrap(),
             Type::Array | Type::Exception | Type::Object | Type::Module | Type::Unknown => ctx

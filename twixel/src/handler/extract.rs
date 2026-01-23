@@ -19,7 +19,7 @@ pub trait Extract: Sized + Send + 'static {
     type Error: IntoResponse + Send + 'static;
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
@@ -29,16 +29,16 @@ pub trait ExtractFull: Sized {
     type Error: IntoResponse + Send + 'static;
 
     fn extract_full(
-        msg: AnySemantic<'static>,
+        msg: AnySemantic,
         data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-impl ExtractFull for AnySemantic<'static> {
+impl ExtractFull for AnySemantic {
     type Error = Infallible;
 
     fn extract_full(
-        msg: AnySemantic<'static>,
+        msg: AnySemantic,
         _data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         ready(Ok(msg))
@@ -49,7 +49,7 @@ impl<T: Extract> ExtractFull for T {
     type Error = <T as Extract>::Error;
 
     async fn extract_full(
-        msg: AnySemantic<'static>,
+        msg: AnySemantic,
         data: Arc<BotData>,
     ) -> Result<Self, Self::Error> {
         T::extract(&msg, data).await
@@ -60,11 +60,11 @@ macro_rules! impl_semantic {
     ($($ty:tt),+) => {
         mod semantic {
             $(
-                impl super::ExtractFull for twixel_core::irc_message::$ty<'static> {
+                impl super::ExtractFull for twixel_core::irc_message::$ty {
                     type Error = ();
 
                     fn extract_full(
-                        msg: twixel_core::irc_message::AnySemantic<'static>,
+                        msg: twixel_core::irc_message::AnySemantic,
                         _data: std::sync::Arc<crate::bot::BotData>
                     ) -> impl futures::Future<Output = Result<Self, Self::Error>> + std::marker::Send {
                         std::future::ready(twixel_core::irc_message::$ty::from_any(msg).ok_or(()))
@@ -104,7 +104,7 @@ impl<T: Extract> Extract for Option<T> {
     type Error = Infallible;
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         T::extract(msg, data).map(|t| Ok(t.ok()))
@@ -140,8 +140,8 @@ where
 {
     type Error = Infallible;
 
-    fn extract(msg: &AnySemantic<'_>, data: Arc<BotData>) -> Ready<Result<Self, Infallible>> {
-        let msg = msg.clone().to_static();
+    fn extract(msg: &AnySemantic, data: Arc<BotData>) -> Ready<Result<Self, Infallible>> {
+        let msg = msg.clone();
         let init = Box::pin(async move { T::extract_full(msg, data).await });
         ready(Ok(Self::NotInitialized { init }))
     }
@@ -159,7 +159,7 @@ impl Extract for MessageText {
     type Error = ();
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         _data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         let text = match msg {
@@ -186,7 +186,7 @@ impl Extract for Username {
     type Error = ();
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         _data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         ready(match msg {
@@ -204,7 +204,7 @@ impl Extract for SenderId {
     type Error = ();
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         _data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         match msg {
@@ -225,7 +225,7 @@ impl Extract for Channel {
     type Error = ();
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         _data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         let chan = if msg.get_command() == IrcCommand::PrivMsg {
@@ -254,7 +254,7 @@ impl<T: Send + Sync + 'static> Extract for Data<T> {
     type Error = Infallible;
 
     fn extract(
-        _msg: &AnySemantic<'_>,
+        _msg: &AnySemantic,
         data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         let data = data.get::<T>().expect("Failed to find data");
@@ -278,7 +278,7 @@ impl<T: clap::Parser + Send + 'static> Extract for Clap<T> {
     type Error = Option<clap::Error>;
 
     fn extract(
-        msg: &AnySemantic<'_>,
+        msg: &AnySemantic,
         _data: Arc<BotData>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send {
         let AnySemantic::PrivMsg(msg) = msg else {

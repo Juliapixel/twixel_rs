@@ -5,9 +5,11 @@ use std::{
 };
 
 use clap::error::{ContextKind, ErrorKind};
+use twixel_core::MessageBuilder;
 
 pub enum BotResponse {
     Message(String),
+    Raw(MessageBuilder<'static>),
     Join(String),
     Part(String),
     Shutdown,

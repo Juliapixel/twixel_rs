@@ -2,27 +2,29 @@ use std::{borrow::Cow, fmt::Write};
 
 use hashbrown::HashMap;
 
-use crate::irc_message::PrivMsg;
+use crate::irc_message::{PrivMsg, tags::escape_tag_value};
 
 use super::{ToIrcMessage, command::IrcCommand, prefix::OwnedPrefix, tags::OwnedTag};
 
+/// Helper struct to make new IRCv3 messages
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MessageBuilder<'a> {
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_tags"))]
     #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_tags"))]
     #[cfg_attr(feature = "serde", serde(borrow))]
-    pub tags: HashMap<OwnedTag, Cow<'a, str>>,
-    pub prefix: Option<OwnedPrefix>,
+    tags: HashMap<OwnedTag, Cow<'a, str>>,
+    prefix: Option<OwnedPrefix>,
+    /// The IRCv3 command
     pub command: IrcCommand,
     #[cfg_attr(feature = "serde", serde(borrow))]
-    pub params: Vec<Cow<'a, str>>,
+    params: Vec<Cow<'a, str>>,
 }
 
+/// Error occurred while creating a [MessageBuilder]
 #[derive(Debug, thiserror::Error)]
 pub enum MessageBuilderError {
-    #[error("cannot create a builder from {0}")]
-    WrongMessageType(IrcCommand),
+    /// The message used to create a [MessageBuilder] was missing a required tag
     #[error("could not create builder from message due to a missing tag")]
     MissingTag,
 }
@@ -110,7 +112,16 @@ impl<'a> MessageBuilder<'a> {
 
     /// Add new tag-value pair
     pub fn add_tag(mut self, tag: OwnedTag, value: impl Into<Cow<'a, str>>) -> Self {
-        self.tags.insert(tag, value.into());
+        let value = match value.into() {
+            Cow::Borrowed(s) => escape_tag_value(s),
+            Cow::Owned(s) => {
+                match escape_tag_value(&s) {
+                    Cow::Borrowed(_) => Cow::Owned(s),
+                    Cow::Owned(s) => Cow::Owned(s),
+                }
+            },
+        };
+        self.tags.insert(tag, value);
         self
     }
 

@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, task::Poll};
 
 use error::ConnectionError;
-use futures_util::{Sink, SinkExt, Stream, StreamExt};
+use futures_util::{Sink, SinkExt, Stream, StreamExt, stream::FusedStream};
 use hashbrown::HashSet;
 use log::{debug, warn};
 use tokio::net::TcpStream;
@@ -95,6 +95,10 @@ impl<A: AuthProvider> Connection<A> {
             buffer: VecDeque::new(),
             auth_info: Box::new(auth),
         }
+    }
+
+    pub fn started(&self) -> bool {
+        self.socket.is_some()
     }
 
     pub async fn start(&mut self) -> Result<(), ConnectionError> {
@@ -233,6 +237,12 @@ impl<A: AuthProvider> Connection<A> {
         futures_util::stream::unfold(self, |mut state| async move {
             Some((state.receive().await, state))
         })
+    }
+}
+
+impl<A: AuthProvider> FusedStream for Connection<A> {
+    fn is_terminated(&self) -> bool {
+        self.socket.as_ref().is_some_and(|s| s.is_terminated())
     }
 }
 
