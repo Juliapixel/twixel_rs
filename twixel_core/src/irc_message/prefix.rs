@@ -62,17 +62,16 @@ impl FromStr for OwnedPrefix {
     type Err = Infallible;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.split_once('@').and_then(|(l,r)| Some((l.split_once('!')?, r))) {
-            Some(((nickname, username), host)) => {
-                Ok(Self::Full {
-                    nickname: nickname.into(),
-                    username: username.into(),
-                    host: host.into(),
-                })
-            }
-            None => Ok(Self::OnlyHostname {
-                host: value.into(),
+        match value
+            .split_once('@')
+            .and_then(|(l, r)| Some((l.split_once('!')?, r)))
+        {
+            Some(((nickname, username), host)) => Ok(Self::Full {
+                nickname: nickname.into(),
+                username: username.into(),
+                host: host.into(),
             }),
+            None => Ok(Self::OnlyHostname { host: value.into() }),
         }
     }
 }

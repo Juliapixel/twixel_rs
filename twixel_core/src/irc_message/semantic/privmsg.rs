@@ -32,8 +32,7 @@ impl PrivMsg {
         );
         roles.set(
             ChannelRoles::LeadModerator,
-            self.badges()
-                .any(|(n, _)| n == "lead_moderator"),
+            self.badges().any(|(n, _)| n == "lead_moderator"),
         );
         roles.set(
             ChannelRoles::Subscriber,
@@ -79,9 +78,8 @@ impl PrivMsg {
 
     /// Whether the message is a /me command and should be highlighted/colored
     pub fn is_me(&self) -> bool {
-        self.get_param(1).is_some_and(|p|
-            p.starts_with(":\u{0001}ACTION ") && p.ends_with('\u{0001}')
-        )
+        self.get_param(1)
+            .is_some_and(|p| p.starts_with(":\u{0001}ACTION ") && p.ends_with('\u{0001}'))
     }
 
     /// The message ID to be used in the ReplyParentMsgId tag when replying

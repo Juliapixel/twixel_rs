@@ -43,7 +43,8 @@ impl<L, R> private::Sealed for either::Either<L, R>
 where
     L: SemanticIrcMessage,
     R: SemanticIrcMessage,
-{}
+{
+}
 
 impl<L, R> SemanticIrcMessage for either::Either<L, R>
 where

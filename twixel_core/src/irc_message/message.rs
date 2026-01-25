@@ -1,4 +1,10 @@
-use std::{borrow::Cow, fmt::Display, ops::{Deref, Range}, slice::Iter, str::FromStr};
+use std::{
+    borrow::Cow,
+    fmt::Display,
+    ops::{Deref, Range},
+    slice::Iter,
+    str::FromStr,
+};
 
 #[cfg(feature = "serde")]
 use serde::{
@@ -9,11 +15,11 @@ use smallvec::SmallVec;
 #[cfg(feature = "connection")]
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::irc_message::{error::IrcMessageStructureError, iter::IrcMessageParseIter, prefix::RawPrefix, tags::RawIrcTags};
-
-use super::{
-    ToIrcMessage, command::IrcCommand, error::IrcMessageParseError, tags::OwnedTag,
+use crate::irc_message::{
+    error::IrcMessageStructureError, iter::IrcMessageParseIter, prefix::RawPrefix, tags::RawIrcTags,
 };
+
+use super::{ToIrcMessage, command::IrcCommand, error::IrcMessageParseError, tags::OwnedTag};
 
 type ParamVec = SmallVec<[Range<usize>; 3]>;
 type MessageParts = (Option<RawIrcTags>, Option<RawPrefix>, IrcCommand, ParamVec);
@@ -30,7 +36,9 @@ pub struct IrcMessage {
 
 impl IrcMessage {
     /// Parses an IRCv3 message into this struct
-    pub fn new(value: impl Into<String> + Deref<Target = str>) -> Result<Self, IrcMessageParseError> {
+    pub fn new(
+        value: impl Into<String> + Deref<Target = str>,
+    ) -> Result<Self, IrcMessageParseError> {
         let (tags, prefix, command, params) = Self::get_parts(&value)?;
 
         Ok(Self {
@@ -308,28 +316,37 @@ impl PartialEq<IrcMessage> for IrcMessage {
         // is this correct??
         // if self.raw.len() != other.raw.len() { return false }
 
+        if !(self.get_host() == other.get_host()
+            && self.get_nickname() == other.get_nickname()
+            && self.get_username() == other.get_username()
+            && self.command == other.command
+            && self.params().eq(other.params()))
+        {
+            return false;
+        }
+
         if let (Some(lhs), Some(rhs)) = (&self.tags, &other.tags) {
-            if lhs.tags.len() != rhs.tags.len() { return false }
+            if lhs.tags.len() != rhs.tags.len() {
+                return false;
+            }
             for (kl, vl) in &lhs.tags {
                 let (kl, vl) = (kl.to_string(&self.raw), &self.raw[vl.clone()]);
-                let rhs_has_lhs = rhs.tags
-                    .iter()
-                    .any(|(kr,vr)| {
-                        let (kr, vr) = (kr.to_string(&other.raw), &other.raw[vr.clone()]);
-                        kl == kr && vl == vr
-                    });
-                if !rhs_has_lhs { return false };
+                let rhs_has_lhs = rhs.tags.iter().any(|(kr, vr)| {
+                    let (kr, vr) = (kr.to_string(&other.raw), &other.raw[vr.clone()]);
+                    kl == kr && vl == vr
+                });
+                if !rhs_has_lhs {
+                    return false;
+                };
             }
+        } else if self.tags.is_some() != other.tags.is_some() {
+            return false;
         }
-        self.get_host() == other.get_host()
-        && self.get_nickname() == other.get_nickname()
-        && self.get_username() == other.get_username()
-        && self.command == other.command
-        && self.params().eq(other.params())
+        true
     }
 }
 
-impl Eq for IrcMessage{}
+impl Eq for IrcMessage {}
 
 #[cfg(all(feature = "serde", feature = "unstable"))]
 impl Serialize for IrcMessage {
@@ -451,8 +468,8 @@ fn from_ws_message() {
 @badge-info=;badges=moments/2;client-nonce=da0ef47ebddf148067c685599dd6bc90;color=#8A2BE2;display-name=lonelythomas;emotes=;first-msg=0;flags=;id=91c3b354-95b7-4509-a337-3b86c194b141;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318910693;turbo=0;user-id=217061103;user-type= :lonelythomas!lonelythomas@lonelythomas.tmi.twitch.tv PRIVMSG #xqc :LETHIMCOOK\r
 @badge-info=subscriber/19;badges=subscriber/18,bits/100;client-nonce=b937ab21b00c4f01bd6b729e9b47b665;color=#FFFFFF;display-name=ink6h;emotes=;first-msg=0;flags=;id=5364e52d-baa5-42fa-95a5-d719e17e41dd;mod=0;returning-chatter=0;room-id=71092938;subscriber=1;tmi-sent-ts=1680318911064;turbo=0;user-id=168511883;user-type= :ink6h!ink6h@ink6h.tmi.twitch.tv PRIVMSG #xqc :ye\r
 @badge-info=;badges=;color=;display-name=getoutofmyhead123;emote-only=1;emotes=emotesv2_04dd118ef04a49c1aa0caa7fc3144369:0-4,6-10,12-16;first-msg=0;flags=;id=225dcdf8-c734-4f62-bb30-af49f2af32e9;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318911099;turbo=0;user-id=880902531;user-type= :getoutofmyhead123!getoutofmyhead123@getoutofmyhead123.tmi.twitch.tv PRIVMSG #xqc :xqcLL xqcLL xqcLL\r";
-        let msg = WsMessage::Text(MSGS.into());
-        for msg in IrcMessage::from_ws_message(&msg) {
+    let msg = WsMessage::Text(MSGS.into());
+    for msg in IrcMessage::from_ws_message(&msg) {
         assert!(msg.is_ok(), "{msg:?}");
     }
 }

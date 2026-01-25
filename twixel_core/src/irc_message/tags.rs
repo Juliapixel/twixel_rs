@@ -16,13 +16,13 @@ enum Escape {
     Lf,
     Semicolon,
     Other,
-    TrailingSlash
+    TrailingSlash,
 }
 
 fn find_escape_seq(val: &str) -> Option<(Escape, Range<usize>)> {
     let backslash = val.find("\\")?;
     let Some(next) = val[backslash..].chars().nth(1) else {
-        return Some((Escape::TrailingSlash, backslash..backslash + 1))
+        return Some((Escape::TrailingSlash, backslash..backslash + 1));
     };
 
     let range = backslash..(backslash + 1 + next.len_utf8());
@@ -72,11 +72,11 @@ pub(crate) fn escape_tag_value(val: &str) -> Cow<'_, str> {
             "\r" => "\\r",
             "\n" => "\\n",
             ";" => "\\:",
-            _ => unreachable!()
+            _ => unreachable!(),
         });
         last = idx + 1;
     }
-        if out.is_empty() {
+    if out.is_empty() {
         Cow::Borrowed(val)
     } else {
         out.push_str(&val[last..]);
@@ -334,14 +334,16 @@ impl RawIrcTags {
                 let divider = divider + last_pos;
                 tags.insert(RawTag::parse(raw, last_pos..divider), divider + 1..pos - 1);
             } else {
-                tags.insert(RawTag::parse(raw, last_pos..pos-1), pos-1..pos-1);
+                tags.insert(RawTag::parse(raw, last_pos..pos - 1), pos - 1..pos - 1);
             }
 
             last_pos = pos;
         }
 
         // parsing the last tag
-        if let Some(divider) = memchr::memchr(b'=', &raw.as_bytes()[last_pos..]).map(|d| d + last_pos) {
+        if let Some(divider) =
+            memchr::memchr(b'=', &raw.as_bytes()[last_pos..]).map(|d| d + last_pos)
+        {
             tags.insert(
                 RawTag::parse(raw, last_pos..divider),
                 divider + 1..raw_end_idx,
@@ -439,16 +441,19 @@ impl<'a> Iterator for TagsIter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::irc_message::tags::{escape_tag_value, unescape_tag_value, OwnedTag, RawIrcTags};
+    use crate::irc_message::tags::{OwnedTag, RawIrcTags, escape_tag_value, unescape_tag_value};
 
     #[test]
     fn parse_normal() {
         let source = "buh=123;vip=1;color=#123123";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
-        assert_eq!(tags.get_raw_value(source, OwnedTag::Unknown("buh".into())), Some("123"));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("123")
+        );
         assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
     }
@@ -457,10 +462,13 @@ mod tests {
     fn parse_empty() {
         let source = "buh=;vip=1;color=#123123";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
-        assert_eq!(tags.get_raw_value(source, OwnedTag::Unknown("buh".into())), Some(""));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("")
+        );
         assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
     }
@@ -469,24 +477,30 @@ mod tests {
     fn parse_empty_trailing() {
         let source = "vip=1;color=#123123;buh";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
         assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
-        assert_eq!(tags.get_raw_value(source, OwnedTag::Unknown("buh".into())), Some(""));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("")
+        );
     }
 
     #[test]
     fn parse_empty_no_equals() {
         let source = "buh;vip=1;color=#123123";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
         dbg!(tags.iter(source));
 
-        assert_eq!(tags.get_raw_value(source, OwnedTag::Unknown("buh".into())), Some(""));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("")
+        );
         assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
     }
@@ -495,8 +509,8 @@ mod tests {
     fn parse_multi() {
         let source = "vip=123;vip=321;color=#123123";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
         assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("321"));
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
@@ -506,10 +520,13 @@ mod tests {
     fn parse_multi_unknown() {
         let source = "buh=123;buh=321;color=#123123";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
-        assert_eq!(tags.get_raw_value(source, OwnedTag::Unknown("buh".into())), Some("321"));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("321")
+        );
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
     }
 
@@ -517,106 +534,64 @@ mod tests {
     fn parse_multi_unknown2() {
         let source = "buh=123;buh=321;buh=hub;color=#123123";
 
-        let tags = RawIrcTags::new(source, 0, source.len())
-            .expect("failed to parse tags from string");
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
 
-        assert_eq!(tags.get_raw_value(source, OwnedTag::Unknown("buh".into())), Some("hub"));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("hub")
+        );
         assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
     }
 
     #[test]
     fn unescape_tags() {
         let space = "Hello,\\sworld!";
-        assert_eq!(
-            unescape_tag_value(space),
-            "Hello, world!"
-        );
+        assert_eq!(unescape_tag_value(space), "Hello, world!");
 
         let semicolon = "semi\\:";
-        assert_eq!(
-            unescape_tag_value(semicolon),
-            "semi;"
-        );
+        assert_eq!(unescape_tag_value(semicolon), "semi;");
 
         let backslash = "\\\\/";
-        assert_eq!(
-            unescape_tag_value(backslash),
-            "\\/"
-        );
+        assert_eq!(unescape_tag_value(backslash), "\\/");
 
         let backslash_s = "\\\\s";
-        assert_eq!(
-            unescape_tag_value(backslash_s),
-            "\\s"
-        );
+        assert_eq!(unescape_tag_value(backslash_s), "\\s");
 
         let fake = "\\b";
-        assert_eq!(
-            unescape_tag_value(fake),
-            "b"
-        );
+        assert_eq!(unescape_tag_value(fake), "b");
 
         let multi = "\\s\\s";
-        assert_eq!(
-            unescape_tag_value(multi),
-            "  "
-        );
+        assert_eq!(unescape_tag_value(multi), "  ");
 
         let all = "\\\\\\s\\:\\r\\n\\a";
-        assert_eq!(
-            unescape_tag_value(all),
-            "\\ ;\r\na"
-        );
+        assert_eq!(unescape_tag_value(all), "\\ ;\r\na");
 
         let trailing = "test\\";
-        assert_eq!(
-            unescape_tag_value(trailing),
-            "test"
-        );
+        assert_eq!(unescape_tag_value(trailing), "test");
     }
 
     #[test]
     fn escape_tags() {
         let space = "Hello, world!";
-        assert_eq!(
-            escape_tag_value(space),
-            "Hello,\\sworld!"
-        );
+        assert_eq!(escape_tag_value(space), "Hello,\\sworld!");
 
         let semicolon = "semi;";
-        assert_eq!(
-            escape_tag_value(semicolon),
-            "semi\\:"
-        );
+        assert_eq!(escape_tag_value(semicolon), "semi\\:");
 
         let backslash = "\\/";
-        assert_eq!(
-            escape_tag_value(backslash),
-            "\\\\/"
-        );
+        assert_eq!(escape_tag_value(backslash), "\\\\/");
 
         let space = " ";
-        assert_eq!(
-            escape_tag_value(space),
-            "\\s"
-        );
+        assert_eq!(escape_tag_value(space), "\\s");
 
         let fake = "\\b";
-        assert_eq!(
-            escape_tag_value(fake),
-            "\\\\b"
-        );
+        assert_eq!(escape_tag_value(fake), "\\\\b");
 
         let multi = "  ";
-        assert_eq!(
-            escape_tag_value(multi),
-            "\\s\\s"
-        );
+        assert_eq!(escape_tag_value(multi), "\\s\\s");
 
         let all = "\\ ;\r\n\\a";
-        assert_eq!(
-            escape_tag_value(all),
-            "\\\\\\s\\:\\r\\n\\\\a"
-        );
+        assert_eq!(escape_tag_value(all), "\\\\\\s\\:\\r\\n\\\\a");
     }
 }

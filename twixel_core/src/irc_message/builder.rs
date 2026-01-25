@@ -114,11 +114,9 @@ impl<'a> MessageBuilder<'a> {
     pub fn add_tag(mut self, tag: OwnedTag, value: impl Into<Cow<'a, str>>) -> Self {
         let value = match value.into() {
             Cow::Borrowed(s) => escape_tag_value(s),
-            Cow::Owned(s) => {
-                match escape_tag_value(&s) {
-                    Cow::Borrowed(_) => Cow::Owned(s),
-                    Cow::Owned(s) => Cow::Owned(s),
-                }
+            Cow::Owned(s) => match escape_tag_value(&s) {
+                Cow::Borrowed(_) => Cow::Owned(s),
+                Cow::Owned(s) => Cow::Owned(s),
             },
         };
         self.tags.insert(tag, value);

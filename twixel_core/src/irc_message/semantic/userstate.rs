@@ -3,6 +3,7 @@ use crate::{irc_message::tags::OwnedTag, user::ChannelRoles};
 use super::UserState;
 
 impl UserState {
+    /// Login of the channel the USERSTATE message relates to
     pub fn channel_login(&self) -> &str {
         self.get_param(0)
             .expect("malformed channel login param")
@@ -28,8 +29,7 @@ impl UserState {
         );
         roles.set(
             ChannelRoles::LeadModerator,
-            self.badges()
-                .any(|(n, _)| n == "lead_moderator"),
+            self.badges().any(|(n, _)| n == "lead_moderator"),
         );
         roles.set(
             ChannelRoles::Subscriber,
@@ -48,6 +48,8 @@ impl UserState {
     /// Returns whether the user is a moderator or lead moderator
     pub fn is_mod(&self) -> bool {
         self.get_tag(OwnedTag::Mod).is_some()
-        || self.badges().any(|(k, _)| k == "lead_moderator" || k == "moderator")
+            || self
+                .badges()
+                .any(|(k, _)| k == "lead_moderator" || k == "moderator")
     }
 }

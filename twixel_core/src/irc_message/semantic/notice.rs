@@ -12,6 +12,7 @@ impl Notice {
         msg_from_param(msg_param)
     }
 
+    /// Login of the channel the NOTICE message relates to
     pub fn channel_login(&self) -> &str {
         let chan_param = self
             .inner
@@ -24,6 +25,7 @@ impl Notice {
         }
     }
 
+    /// ID of the use the NOTICE message relates to
     pub fn target_user_id(&self) -> Option<&str> {
         self.get_tag_raw(OwnedTag::TargetUserId)
     }

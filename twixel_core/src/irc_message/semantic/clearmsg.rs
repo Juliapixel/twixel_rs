@@ -10,10 +10,7 @@ impl ClearMsg {
 
     /// Text of the deleted message
     pub fn message_text(&self) -> Option<&str> {
-        self
-            .inner
-            .get_param(1)
-            .map(msg_from_param)
+        self.inner.get_param(1).map(msg_from_param)
     }
 
     /// ID of the user whose message was deleted
@@ -28,6 +25,7 @@ impl ClearMsg {
 
     /// Login of the channel where the message was deleted
     pub fn channel_login(&self) -> Option<&str> {
-        self.get_param(0).and_then(|p| p.split_at_checked(1).map(|s| s.1))
+        self.get_param(0)
+            .and_then(|p| p.split_at_checked(1).map(|s| s.1))
     }
 }

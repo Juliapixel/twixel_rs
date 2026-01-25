@@ -1,3 +1,7 @@
+//! # twixel_core
+//!
+//! A [Twitch](https://twitch.tv/) IRC chat client library
+
 #![deny(clippy::missing_safety_doc)]
 #![warn(missing_docs)]
 // utf-8 char boundary checking is cool

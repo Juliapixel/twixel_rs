@@ -6,7 +6,7 @@ use hashbrown::HashMap;
 
 use crate::{
     auth::AuthProvider,
-    irc_message::{builder::MessageBuilder, message::IrcMessage, ToIrcMessage},
+    irc_message::{ToIrcMessage, builder::MessageBuilder, message::IrcMessage},
 };
 
 use super::{Connection, error::PoolError};
@@ -14,6 +14,8 @@ use super::{Connection, error::PoolError};
 // current limit
 const MAX_CHANNELS_PER_CONNECTION: usize = 100;
 
+/// A pool of [Connection](super::Connection)s, useful for bots that requires being connected to more
+/// than 100 channels
 pub struct ConnectionPool<A: AuthProvider + Clone> {
     pool: Vec<Connection<A>>,
     // relation between channel and connection index in the pool
@@ -22,6 +24,7 @@ pub struct ConnectionPool<A: AuthProvider + Clone> {
 }
 
 impl<A: AuthProvider + Clone> ConnectionPool<A> {
+    /// Create a new [ConnectionPool] that joins `channels immediately
     pub async fn new(
         channels: impl IntoIterator<Item = impl Into<String>>,
         auth: A,
@@ -46,6 +49,7 @@ impl<A: AuthProvider + Clone> ConnectionPool<A> {
         })
     }
 
+    /// Part a specific channel
     pub async fn part_channel(&mut self, channel_login: &str) -> Result<(), PoolError> {
         match self
             .channels
@@ -61,6 +65,7 @@ impl<A: AuthProvider + Clone> ConnectionPool<A> {
         }
     }
 
+    /// Join a specific channel
     pub async fn join_channel(&mut self, channel_login: &str) -> Result<(), PoolError> {
         match self
             .pool
@@ -86,10 +91,12 @@ impl<A: AuthProvider + Clone> ConnectionPool<A> {
         }
     }
 
+    /// Get the index of the connection that is joined to the specified channel
     pub fn get_conn_idx(&self, channel_login: &str) -> Option<usize> {
         self.channels.get(channel_login).copied().flatten()
     }
 
+    /// Send a `PRIVMSG` to the connection that is joined to the specified channel
     pub async fn send_to_channel(&mut self, message: &str, channel: &str) -> Result<(), PoolError> {
         let conn_idx = self
             .channels
@@ -106,6 +113,7 @@ impl<A: AuthProvider + Clone> ConnectionPool<A> {
         Ok(())
     }
 
+    /// Restart a connection specified by its index
     pub async fn restart_connection(&mut self, index: usize) -> Result<(), PoolError> {
         let pool_len = self.pool.len();
         self.pool
@@ -116,6 +124,7 @@ impl<A: AuthProvider + Clone> ConnectionPool<A> {
         Ok(())
     }
 
+    /// Send an arbitrary IRC message to a connection specified by its index
     pub async fn send_to_connection(
         &mut self,
         msg: impl ToIrcMessage,
@@ -153,7 +162,9 @@ impl<A: AuthProvider + Clone> Stream for ConnectionPool<A> {
     }
 }
 
-impl<T: ToIrcMessage, A: AuthProvider + Clone> Sink<(Either<usize, &str>, T)> for ConnectionPool<A> {
+impl<T: ToIrcMessage, A: AuthProvider + Clone> Sink<(Either<usize, &str>, T)>
+    for ConnectionPool<A>
+{
     type Error = PoolError;
 
     fn poll_ready(

@@ -31,7 +31,10 @@ pub struct Anonymous;
 
 impl AuthProvider for Anonymous {
     fn pass_nick(&mut self) -> (String, String) {
-        ("POGGERS".into(), format!("justinfan{}", rand::rng().random_range(1..99999)))
+        (
+            "POGGERS".into(),
+            format!("justinfan{}", rand::rng().random_range(1..99999)),
+        )
     }
 }
 
