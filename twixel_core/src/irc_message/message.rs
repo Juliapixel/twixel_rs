@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     fmt::Display,
-    ops::{Deref, Range},
+    ops::{Deref, Range, RangeInclusive},
     slice::Iter,
     str::FromStr,
 };
@@ -144,6 +144,30 @@ impl IrcMessage {
             .as_ref()
             .and_then(|t| t.get_raw_value(&self.raw, OwnedTag::Badges).map(|s| (t, s)))
             .map(|(t, src)| t.badge_iter(src))
+            .into_iter()
+            .flatten()
+    }
+
+    /// Iterates over the message's emotes, yields emote id and **char** ranges of ocurrences
+    pub fn emotes(&self) -> impl Iterator<Item = (&str, Vec<RangeInclusive<usize>>)> {
+        self.tags
+            .as_ref()
+            .and_then(|t| t.get_raw_value(&self.raw, OwnedTag::Emotes))
+            .map(|s: &str| {
+                s.split('/').filter_map(|e: &str| {
+                    e.split_once(':').map(|(e, r)| {
+                        (
+                            e,
+                            r.split(',')
+                                .filter_map(|r| {
+                                    r.split_once('-')
+                                        .and_then(|(s, e)| Some(s.parse().ok()?..=e.parse().ok()?))
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                })
+            })
             .into_iter()
             .flatten()
     }
