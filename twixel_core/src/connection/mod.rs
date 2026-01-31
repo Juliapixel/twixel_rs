@@ -161,6 +161,8 @@ impl<A: AuthProvider> Connection<A> {
         }
         <Self as SinkExt<MessageBuilder>>::flush(self).await?;
 
+        self.state = ConnectionState::Working;
+
         Ok(())
     }
 
