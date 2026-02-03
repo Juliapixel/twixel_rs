@@ -103,17 +103,22 @@ impl IrcMessage {
 
         let mut last_param_start = pos;
         for i in memchr::memchr3_iter(b' ', b'\r', b'\n', raw[pos..].as_bytes()) {
+            // the : should be ignored in the parsed parameter list, it is merely
+            // a trick to allow spaces within parameters
             if raw.as_bytes()[last_param_start] == b':' {
                 params.push(
                     if let Some(found_end) = memchr::memchr2(b'\r', b'\n', raw[pos..].as_bytes()) {
-                        last_param_start..(found_end + pos)
+                        (last_param_start + 1)..(found_end + pos)
                     } else {
-                        last_param_start..raw.len()
+                        (last_param_start + 1)..raw.len()
                     },
                 );
                 break;
             } else {
                 params.push(last_param_start..pos + i);
+            }
+            if raw.get(pos + i..=pos + i) != Some(" ") {
+                break;
             }
             last_param_start = pos + i + 1;
         }
@@ -196,6 +201,34 @@ impl IrcMessage {
     pub fn get_tag_raw(&self, tag: OwnedTag) -> Option<&str> {
         match &self.tags {
             Some(s) => s.get_raw_value(&self.raw, tag),
+            None => None,
+        }
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no value is present
+    /// - The value associated with the tag, with escape sequences removed.
+    ///
+    /// See also [IrcMessage::get_tag_raw()]
+    pub fn get_tag_by_str(&self, tag: &str) -> Option<Cow<'_, str>> {
+        match &self.tags {
+            Some(s) => s.get_value_by_str(&self.raw, tag),
+            None => None,
+        }
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no value is present
+    /// - The value associated with the tag, with escape sequences not removed
+    ///
+    /// See also [IrcMessage::get_tag()]
+    pub fn get_tag_raw_by_str(&self, tag: &str) -> Option<&str> {
+        match &self.tags {
+            Some(s) => s.get_raw_value_by_str(&self.raw, tag),
             None => None,
         }
     }
@@ -485,15 +518,85 @@ impl<'a> Iterator for Params<'a> {
     }
 }
 
-#[test]
-#[cfg(feature = "connection")]
-fn from_ws_message() {
-    const MSGS: &str = "@badge-info=;badges=moments/2;client-nonce=9297a96d510091fa87c81eaa9e5bb8e3;color=#E4E5FF;display-name=MELLOWFLEUR;emotes=;first-msg=0;flags=;id=1ada6902-aafe-452a-8651-1fe711ddd7d1;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318910689;turbo=0;user-id=45179149;user-type= :mellowfleur!mellowfleur@mellowfleur.tmi.twitch.tv PRIVMSG #xqc :yes\r
+#[cfg(test)]
+mod test {
+    use crate::IrcMessage;
+
+    #[test]
+    #[cfg(feature = "connection")]
+    fn from_ws_message() {
+        use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+        const MSGS: &str = "@badge-info=;badges=moments/2;client-nonce=9297a96d510091fa87c81eaa9e5bb8e3;color=#E4E5FF;display-name=MELLOWFLEUR;emotes=;first-msg=0;flags=;id=1ada6902-aafe-452a-8651-1fe711ddd7d1;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318910689;turbo=0;user-id=45179149;user-type= :mellowfleur!mellowfleur@mellowfleur.tmi.twitch.tv PRIVMSG #xqc :yes\r
 @badge-info=;badges=moments/2;client-nonce=da0ef47ebddf148067c685599dd6bc90;color=#8A2BE2;display-name=lonelythomas;emotes=;first-msg=0;flags=;id=91c3b354-95b7-4509-a337-3b86c194b141;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318910693;turbo=0;user-id=217061103;user-type= :lonelythomas!lonelythomas@lonelythomas.tmi.twitch.tv PRIVMSG #xqc :LETHIMCOOK\r
 @badge-info=subscriber/19;badges=subscriber/18,bits/100;client-nonce=b937ab21b00c4f01bd6b729e9b47b665;color=#FFFFFF;display-name=ink6h;emotes=;first-msg=0;flags=;id=5364e52d-baa5-42fa-95a5-d719e17e41dd;mod=0;returning-chatter=0;room-id=71092938;subscriber=1;tmi-sent-ts=1680318911064;turbo=0;user-id=168511883;user-type= :ink6h!ink6h@ink6h.tmi.twitch.tv PRIVMSG #xqc :ye\r
 @badge-info=;badges=;color=;display-name=getoutofmyhead123;emote-only=1;emotes=emotesv2_04dd118ef04a49c1aa0caa7fc3144369:0-4,6-10,12-16;first-msg=0;flags=;id=225dcdf8-c734-4f62-bb30-af49f2af32e9;mod=0;returning-chatter=0;room-id=71092938;subscriber=0;tmi-sent-ts=1680318911099;turbo=0;user-id=880902531;user-type= :getoutofmyhead123!getoutofmyhead123@getoutofmyhead123.tmi.twitch.tv PRIVMSG #xqc :xqcLL xqcLL xqcLL\r";
-    let msg = WsMessage::Text(MSGS.into());
-    for msg in IrcMessage::from_ws_message(&msg) {
-        assert!(msg.is_ok(), "{msg:?}");
+        let msg = WsMessage::Text(MSGS.into());
+        for msg in IrcMessage::from_ws_message(&msg) {
+            assert!(msg.is_ok(), "{msg:?}");
+        }
+    }
+
+    /// From RFC-2812:
+    /// > After extracting the parameter list, all parameters are equal
+    /// > whether matched by <middle> or <trailing>. <trailing> is just a
+    /// > syntactic trick to allow SPACE within the parameter.
+    #[test]
+    fn test_eq_trailing_middle() {
+        let trailing: IrcMessage =
+            "@tag1=1;tag2=2 :user!user@example.com PRIVMSG #room :hello!\r\n"
+                .parse()
+                .unwrap();
+        let middle: IrcMessage = "@tag1=1;tag2=2 :user!user@example.com PRIVMSG #room hello!\r\n"
+            .parse()
+            .unwrap();
+
+        assert_eq!(
+            trailing,
+            middle,
+            "{:?} {:?}",
+            trailing.get_param(1),
+            trailing.get_param(1)
+        );
+
+        assert_eq!(trailing.params().count(), 2, "{:?}", trailing);
+        assert_eq!(middle.params().count(), 2, "{:?}", middle);
+
+        let multiple: IrcMessage =
+            "@tag1=1;tag2=2 :user!user@example.com PRIVMSG #room hello, world!"
+                .parse()
+                .unwrap();
+        let trailing_multiple: IrcMessage =
+            "@tag1=1;tag2=2 :user!user@example.com PRIVMSG #room :hello, world!"
+                .parse()
+                .unwrap();
+
+        assert_ne!(multiple, trailing_multiple)
+    }
+
+    #[test]
+    fn test_eq_tag_order() {
+        let a: IrcMessage =
+            "@tag1=1;tag2=2;tag3=3;tag4=4 :user!user@example.com PRIVMSG #room :hello!"
+                .parse()
+                .unwrap();
+        let b: IrcMessage =
+            "@tag2=2;tag1=1;tag4=4;tag3=3 :user!user@example.com PRIVMSG #room :hello!"
+                .parse()
+                .unwrap();
+
+        assert_eq!(a, b)
+    }
+
+    #[test]
+    fn test_eq_tag_empty_missing() {
+        let a: IrcMessage = "@tag1 :user!user@example.com PRIVMSG #room :hello!"
+            .parse()
+            .unwrap();
+        let b: IrcMessage = "@tag1= :user!user@example.com PRIVMSG #room :hello!"
+            .parse()
+            .unwrap();
+
+        assert_eq!(a, b)
     }
 }

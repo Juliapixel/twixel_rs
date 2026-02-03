@@ -87,7 +87,7 @@ mod tests {
         assert_eq!(parsed.get_command(), IrcCommand::PrivMsg);
         assert_eq!(parsed.get_tag(OwnedTag::Vip).unwrap(), "1");
         assert_eq!(parsed.get_param(0).unwrap(), "#a");
-        assert_eq!(parsed.get_param(1).unwrap(), ":hi there");
+        assert_eq!(parsed.get_param(1).unwrap(), "hi there");
         assert_eq!(parsed.get_host().unwrap(), "guh");
     }
 

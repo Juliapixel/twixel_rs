@@ -378,6 +378,26 @@ impl RawIrcTags {
         src.get(found.1.clone())
     }
 
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no key is present
+    /// - The value associated with the tag, with escape sequences removed
+    pub fn get_value_by_str<'a>(&self, src: &'a str, tag: &str) -> Option<Cow<'a, str>> {
+        let found = self.tags.iter().find(|t| t.0.to_string(src) == tag)?;
+        src.get(found.1.clone()).map(unescape_tag_value)
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no key is present
+    /// - The value associated with the tag, with escape sequences not removed
+    pub fn get_raw_value_by_str<'a>(&self, src: &'a str, tag: &str) -> Option<&'a str> {
+        let found = self.tags.iter().find(|t| t.0.to_string(src) == tag)?;
+        src.get(found.1.clone())
+    }
+
     pub fn iter<'a>(&'a self, src: &'a str) -> TagsIter<'a> {
         TagsIter::new(self, src)
     }
