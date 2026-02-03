@@ -94,33 +94,51 @@ impl IrcMessage {
                 pos = pos + s + 1;
                 cmd
             }
-            None => return Err(E::NoCommand),
+            None => {
+                let cmd = &raw[pos..raw.len()];
+                if cmd.is_empty() {
+                    return Err(E::NoCommand);
+                }
+                pos = raw.len() - 1;
+                cmd
+            }
         };
 
         let command = IrcCommand::try_from(cmd)?;
 
         let mut params = ParamVec::new();
 
-        let mut last_param_start = pos;
+        let mut param_start = pos;
         for i in memchr::memchr3_iter(b' ', b'\r', b'\n', raw[pos..].as_bytes()) {
             // the : should be ignored in the parsed parameter list, it is merely
             // a trick to allow spaces within parameters
-            if raw.as_bytes()[last_param_start] == b':' {
+            if raw.as_bytes()[param_start] == b':' {
                 params.push(
                     if let Some(found_end) = memchr::memchr2(b'\r', b'\n', raw[pos..].as_bytes()) {
-                        (last_param_start + 1)..(found_end + pos)
+                        (param_start + 1)..(found_end + pos)
                     } else {
-                        (last_param_start + 1)..raw.len()
+                        (param_start + 1)..raw.len()
                     },
                 );
                 break;
             } else {
-                params.push(last_param_start..pos + i);
+                params.push(param_start..pos + i);
             }
-            if raw.get(pos + i..=pos + i) != Some(" ") {
+            if raw.as_bytes().get(pos + i) != Some(&b' ') {
+                if ![b'\r', b'\n'].contains(&raw.as_bytes()[pos + i]) {
+                    params.push(pos + i + 1..raw.len());
+                }
                 break;
             }
-            last_param_start = pos + i + 1;
+            param_start = pos + i + 1;
+        }
+
+        let last_pos = params.last().map(|l| l.end).unwrap_or(pos);
+        if last_pos != raw.len() - 1
+            && let Some(start) = raw.as_bytes().get(last_pos)
+            && ![b'\r', b'\n'].contains(start)
+        {
+            params.push(last_pos..raw.len());
         }
 
         Ok((tags, prefix, command, params))
@@ -535,6 +553,29 @@ mod test {
         for msg in IrcMessage::from_ws_message(&msg) {
             assert!(msg.is_ok(), "{msg:?}");
         }
+    }
+
+    #[test]
+    fn no_crlf() {
+        let no_crlf: IrcMessage = ":user!user@user.tmi.twitch.tv PRIVMSG #room no_CRLF"
+            .parse()
+            .unwrap();
+        let no_crlf_trailing: IrcMessage =
+            ":user!user@user.tmi.twitch.tv PRIVMSG #room :no_CRLF middle"
+                .parse()
+                .unwrap();
+
+        let no_crlf_single_param: IrcMessage = ":user!user@user.tmi.twitch.tv PRIVMSG #room"
+            .parse()
+            .unwrap();
+
+        let no_crlf_paramless: IrcMessage =
+            ":user!user@user.tmi.twitch.tv PRIVMSG".parse().unwrap();
+
+        assert_eq!(no_crlf.params().count(), 2);
+        assert_eq!(no_crlf_trailing.params().count(), 2,);
+        assert_eq!(no_crlf_single_param.params().count(), 1);
+        assert_eq!(no_crlf_paramless.params().count(), 0);
     }
 
     /// From RFC-2812:
