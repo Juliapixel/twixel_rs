@@ -133,8 +133,8 @@ impl IrcMessage {
             param_start = pos + i + 1;
         }
 
-        let last_pos = params.last().map(|l| l.end).unwrap_or(pos);
-        if last_pos != raw.len() - 1
+        let last_pos = params.last().map(|l| l.end + 1).unwrap_or(pos);
+        if last_pos != raw.len()
             && let Some(start) = raw.as_bytes().get(last_pos)
             && ![b'\r', b'\n'].contains(start)
         {
@@ -560,6 +560,11 @@ mod test {
         let no_crlf: IrcMessage = ":user!user@user.tmi.twitch.tv PRIVMSG #room no_CRLF"
             .parse()
             .unwrap();
+
+        let no_crlf_single_char: IrcMessage = ":user!user@user.tmi.twitch.tv PRIVMSG #room a"
+            .parse()
+            .unwrap();
+
         let no_crlf_trailing: IrcMessage =
             ":user!user@user.tmi.twitch.tv PRIVMSG #room :no_CRLF middle"
                 .parse()
@@ -573,9 +578,45 @@ mod test {
             ":user!user@user.tmi.twitch.tv PRIVMSG".parse().unwrap();
 
         assert_eq!(no_crlf.params().count(), 2);
+        assert_eq!(no_crlf.get_param(0), Some("#room"));
+        assert_eq!(no_crlf.get_param(1), Some("no_CRLF"));
+        assert_eq!(no_crlf_single_char.params().count(), 2);
+        assert_eq!(no_crlf_single_char.get_param(0), Some("#room"));
+        assert_eq!(no_crlf_single_char.get_param(1), Some("a"));
         assert_eq!(no_crlf_trailing.params().count(), 2,);
+        assert_eq!(no_crlf_trailing.get_param(0), Some("#room"));
+        assert_eq!(no_crlf_trailing.get_param(1), Some("no_CRLF middle"));
         assert_eq!(no_crlf_single_param.params().count(), 1);
+        assert_eq!(no_crlf_single_param.get_param(0), Some("#room"));
         assert_eq!(no_crlf_paramless.params().count(), 0);
+    }
+
+    #[test]
+    fn with_crlf() {
+        let with_crlf: IrcMessage = ":user!user@user.tmi.twitch.tv PRIVMSG #room no_CRLF\r\n"
+            .parse()
+            .unwrap();
+        let with_crlf_trailing: IrcMessage =
+            ":user!user@user.tmi.twitch.tv PRIVMSG #room :no_CRLF middle\r\n"
+                .parse()
+                .unwrap();
+
+        let with_crlf_single_param: IrcMessage = ":user!user@user.tmi.twitch.tv PRIVMSG #room\r\n"
+            .parse()
+            .unwrap();
+
+        let with_crlf_paramless: IrcMessage =
+            ":user!user@user.tmi.twitch.tv PRIVMSG\r\n".parse().unwrap();
+
+        assert_eq!(with_crlf.params().count(), 2);
+        assert_eq!(with_crlf.get_param(0), Some("#room"));
+        assert_eq!(with_crlf.get_param(1), Some("no_CRLF"));
+        assert_eq!(with_crlf_trailing.params().count(), 2,);
+        assert_eq!(with_crlf_trailing.get_param(0), Some("#room"));
+        assert_eq!(with_crlf_trailing.get_param(1), Some("no_CRLF middle"));
+        assert_eq!(with_crlf_single_param.params().count(), 1);
+        assert_eq!(with_crlf_single_param.get_param(0), Some("#room"));
+        assert_eq!(with_crlf_paramless.params().count(), 0);
     }
 
     /// From RFC-2812:
