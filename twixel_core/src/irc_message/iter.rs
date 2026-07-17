@@ -4,13 +4,15 @@ use crate::IrcMessage;
 
 use super::error::IrcMessageParseError;
 
+/// Iterator over many IRC messages in a single string, separated by CRLF sequences
 pub struct IrcMessageParseIter<'a> {
     pos: usize,
     inner: &'a str,
 }
 
 impl<'a> IrcMessageParseIter<'a> {
-    pub fn new(text: &'a str) -> Self {
+    /// Create a new [IrcMessageParseIter]
+    pub(crate) fn new(text: &'a str) -> Self {
         Self {
             inner: text,
             pos: 0,
@@ -19,23 +21,24 @@ impl<'a> IrcMessageParseIter<'a> {
 }
 
 impl<'a> Iterator for IrcMessageParseIter<'a> {
-    type Item = Result<IrcMessage<'a>, IrcMessageParseError>;
+    type Item = Result<IrcMessage, IrcMessageParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = memchr(b'\n', &self.inner.as_bytes()[self.pos..])?;
-        let parsed = self.inner[self.pos..=(self.pos + next)].parse::<IrcMessage<'_>>();
+        let parsed = self.inner[self.pos..=(self.pos + next)].parse::<IrcMessage>();
         self.pos += next + 1;
         Some(parsed)
     }
 }
 
+/// Iterate over a user's badges
 pub struct BadgeIter<'a> {
     src: &'a str,
     pos: usize,
 }
 
 impl<'a> BadgeIter<'a> {
-    pub fn new(src: &'a str) -> Self {
+    pub(crate) fn new(src: &'a str) -> Self {
         Self { src, pos: 0 }
     }
 }

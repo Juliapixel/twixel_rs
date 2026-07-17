@@ -1,12 +1,88 @@
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, Utc};
+use hashbrown::HashMap;
 use memchr::memchr_iter;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 use thiserror::Error;
 
 use super::iter::BadgeIter;
+
+enum Escape {
+    Space,
+    Backslash,
+    Cr,
+    Lf,
+    Semicolon,
+    Other,
+    TrailingSlash,
+}
+
+fn find_escape_seq(val: &str) -> Option<(Escape, Range<usize>)> {
+    let backslash = val.find("\\")?;
+    let Some(next) = val[backslash..].chars().nth(1) else {
+        return Some((Escape::TrailingSlash, backslash..backslash + 1));
+    };
+
+    let range = backslash..(backslash + 1 + next.len_utf8());
+
+    match next {
+        's' => Some((Escape::Space, range)),
+        '\\' => Some((Escape::Backslash, range)),
+        'r' => Some((Escape::Cr, range)),
+        'n' => Some((Escape::Lf, range)),
+        ':' => Some((Escape::Semicolon, range)),
+        _ => Some((Escape::Other, range)),
+    }
+}
+
+pub(crate) fn unescape_tag_value(val: &str) -> Cow<'_, str> {
+    let mut pos = 0;
+    let mut out = String::with_capacity(val.len());
+    while let Some((esc, range)) = find_escape_seq(&val[pos..]) {
+        out.push_str(&val[pos..(pos + range.start)]);
+        out.push_str(match esc {
+            Escape::Space => " ",
+            Escape::Backslash => "\\",
+            Escape::Cr => "\r",
+            Escape::Lf => "\n",
+            Escape::Semicolon => ";",
+            Escape::Other => &val[(pos + range.start + 1)..(pos + range.end)],
+            Escape::TrailingSlash => "",
+        });
+        pos += range.end
+    }
+    if out.is_empty() {
+        Cow::Borrowed(val)
+    } else {
+        out.push_str(&val[pos..]);
+        Cow::Owned(out)
+    }
+}
+
+pub(crate) fn escape_tag_value(val: &str) -> Cow<'_, str> {
+    let mut last = 0;
+    let mut out = String::new();
+    for (idx, escapable) in val.match_indices(['\\', ' ', '\r', '\n', ';']) {
+        out.push_str(&val[last..idx]);
+        out.push_str(match escapable {
+            "\\" => "\\\\",
+            " " => "\\s",
+            "\r" => "\\r",
+            "\n" => "\\n",
+            ";" => "\\:",
+            _ => unreachable!(),
+        });
+        last = idx + 1;
+    }
+    if out.is_empty() {
+        Cow::Borrowed(val)
+    } else {
+        out.push_str(&val[last..]);
+        Cow::Owned(out)
+    }
+}
 
 macro_rules! raw_tags {
     (
@@ -18,14 +94,16 @@ macro_rules! raw_tags {
         ),*
     ) => {
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-        #[derive(Debug, PartialEq, Eq, Clone)]
+        #[derive(Debug, PartialEq, Eq, Clone, Hash)]
         #[non_exhaustive]
         $(#[$top_comment])*
-        pub enum $raw_tag {
+        pub(crate) enum $raw_tag {
             $(
+                #[doc = concat!("the \"", $key, "\" tag")]
                 $(#[$comment])*
                 $name,
             )+
+            /// An unknown tag key value
             Unknown(Range<usize>)
         }
 
@@ -34,7 +112,6 @@ macro_rules! raw_tags {
                 match &src[range.clone()] {
                     $($key => Self::$name,)*
                     _ => {
-                        log::warn!("unknown tag parsed! please notify the developers of this issue: {:?}", &src[range.clone()]);
                         Self::Unknown(range)
                     }
                 }
@@ -57,14 +134,16 @@ macro_rules! raw_tags {
 
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[cfg_attr(feature = "serde", serde(into = "String", from = "&str"))]
-        #[derive(Debug, PartialEq, Eq, Clone)]
+        #[derive(Debug, PartialEq, Eq, Clone, Hash)]
         #[non_exhaustive]
         $(#[$top_comment])*
         pub enum $tag {
             $(
+                #[doc = concat!("the \"", $key, "\" tag")]
                 $(#[$comment])*
                 $name,
             )+
+            /// An unknown tag key value
             Unknown(String)
         }
 
@@ -73,6 +152,15 @@ macro_rules! raw_tags {
                 match val {
                     $($key => Self::$name,)*
                     _ => Self::Unknown(String::from(val))
+                }
+            }
+        }
+
+        impl ::std::fmt::Display for $tag {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                match self {
+                    $($tag::$name => f.write_str($key),)+
+                    $tag::Unknown(val) => f.write_str(val)
                 }
             }
         }
@@ -207,12 +295,16 @@ raw_tags!(
     "custom-reward-id" = CustomRewardId
 );
 
+/// Error enum for erros when parsing tags
 #[derive(Debug, Error)]
 pub enum IRCTagParseError {
+    /// The structure of the tags did not match what was expected
     #[error("failed to parse the tag due to invalid structure: {0}")]
     TagStructureParseError(String),
+    /// Unknown error
     #[error("failed to parse the tag due to unknown error: {0}")]
     ContentParseFailed(String),
+    /// Tag identifier was not a known value
     #[error("tag identifier not recognized: {0}")]
     UnknownIdentifier(String),
 }
@@ -220,7 +312,8 @@ pub enum IRCTagParseError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RawIrcTags {
     /// first item is the [RawTag] enum and the second is the position of the tag's value
-    pub(crate) tags: Vec<(RawTag, Range<usize>)>,
+    // FIXME: makes duplicates for Unknown tags
+    pub(crate) tags: HashMap<RawTag, Range<usize>>,
 }
 
 impl RawIrcTags {
@@ -228,7 +321,7 @@ impl RawIrcTags {
     /// the leading `@` and the trailing space
     #[inline]
     pub(crate) fn new(raw: &str, raw_start_idx: usize, raw_end_idx: usize) -> Option<Self> {
-        let mut tags = Vec::new();
+        let mut tags = HashMap::new();
 
         // position of last found start of tag
         let mut last_pos: usize = raw_start_idx;
@@ -237,23 +330,71 @@ impl RawIrcTags {
             let pos = i + raw_start_idx + 1;
 
             // positon of current parsed tag's divider
-            let divider = memchr::memchr(b'=', &raw.as_bytes()[last_pos..pos - 1])? + last_pos;
-            tags.push((RawTag::parse(raw, last_pos..divider), divider + 1..pos - 1));
+            if let Some(divider) = memchr::memchr(b'=', &raw.as_bytes()[last_pos..pos - 1]) {
+                let divider = divider + last_pos;
+                tags.insert(RawTag::parse(raw, last_pos..divider), divider + 1..pos - 1);
+            } else {
+                tags.insert(RawTag::parse(raw, last_pos..pos - 1), pos - 1..pos - 1);
+            }
 
             last_pos = pos;
         }
+
         // parsing the last tag
-        let divider = memchr::memchr(b'=', &raw.as_bytes()[last_pos..])? + last_pos;
-        tags.push((
-            RawTag::parse(raw, last_pos..divider),
-            divider + 1..raw_end_idx,
-        ));
+        if let Some(divider) =
+            memchr::memchr(b'=', &raw.as_bytes()[last_pos..]).map(|d| d + last_pos)
+        {
+            tags.insert(
+                RawTag::parse(raw, last_pos..divider),
+                divider + 1..raw_end_idx,
+            );
+        } else {
+            tags.insert(
+                RawTag::parse(raw, last_pos..raw_end_idx),
+                raw_end_idx..raw_end_idx,
+            );
+        }
 
         Some(Self { tags })
     }
 
-    pub fn get_value<'a>(&self, src: &'a str, tag: OwnedTag) -> Option<&'a str> {
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no key is present
+    /// - The value associated with the tag, with escape sequences removed
+    pub fn get_value<'a>(&self, src: &'a str, tag: OwnedTag) -> Option<Cow<'a, str>> {
         let found = self.tags.iter().find(|t| t.0.to_owned(src) == tag)?;
+        src.get(found.1.clone()).map(unescape_tag_value)
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no key is present
+    /// - The value associated with the tag, with escape sequences not removed
+    pub fn get_raw_value<'a>(&self, src: &'a str, tag: OwnedTag) -> Option<&'a str> {
+        let found = self.tags.iter().find(|t| t.0.to_owned(src) == tag)?;
+        src.get(found.1.clone())
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no key is present
+    /// - The value associated with the tag, with escape sequences removed
+    pub fn get_value_by_str<'a>(&self, src: &'a str, tag: &str) -> Option<Cow<'a, str>> {
+        let found = self.tags.iter().find(|t| t.0.to_string(src) == tag)?;
+        src.get(found.1.clone()).map(unescape_tag_value)
+    }
+
+    /// Retrieves the value associated with the given tag.
+    /// # Returns
+    /// - `None` if the tag is not present
+    /// - An empty string if the tag is present but no key is present
+    /// - The value associated with the tag, with escape sequences not removed
+    pub fn get_raw_value_by_str<'a>(&self, src: &'a str, tag: &str) -> Option<&'a str> {
+        let found = self.tags.iter().find(|t| t.0.to_string(src) == tag)?;
         src.get(found.1.clone())
     }
 
@@ -292,10 +433,11 @@ impl RawIrcTags {
     }
 }
 
+/// An iterator for every tag in an [IrcMessage](crate::IrcMessage)
 #[derive(Debug, Clone)]
 pub struct TagsIter<'a> {
     src: &'a str,
-    iter: core::slice::Iter<'a, (RawTag, std::ops::Range<usize>)>,
+    iter: hashbrown::hash_map::Iter<'a, RawTag, std::ops::Range<usize>>,
 }
 
 impl<'a> TagsIter<'a> {
@@ -314,5 +456,162 @@ impl<'a> Iterator for TagsIter<'a> {
         self.iter
             .next()
             .map(|(rt, range)| (rt.to_owned(self.src), &self.src[range.clone()]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::irc_message::tags::{OwnedTag, RawIrcTags, escape_tag_value, unescape_tag_value};
+
+    #[test]
+    fn parse_normal() {
+        let source = "buh=123;vip=1;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("123")
+        );
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+    }
+
+    #[test]
+    fn parse_empty() {
+        let source = "buh=;vip=1;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("")
+        );
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+    }
+
+    #[test]
+    fn parse_empty_trailing() {
+        let source = "vip=1;color=#123123;buh";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn parse_empty_no_equals() {
+        let source = "buh;vip=1;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        dbg!(tags.iter(source));
+
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("")
+        );
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("1"));
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+    }
+
+    #[test]
+    fn parse_multi() {
+        let source = "vip=123;vip=321;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Vip), Some("321"));
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+    }
+
+    #[test]
+    fn parse_multi_unknown() {
+        let source = "buh=123;buh=321;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("321")
+        );
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+    }
+
+    #[test]
+    fn parse_multi_unknown2() {
+        let source = "buh=123;buh=321;buh=hub;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+
+        assert_eq!(
+            tags.get_raw_value(source, OwnedTag::Unknown("buh".into())),
+            Some("hub")
+        );
+        assert_eq!(tags.get_raw_value(source, OwnedTag::Color), Some("#123123"));
+    }
+
+    #[test]
+    fn unescape_tags() {
+        let space = "Hello,\\sworld!";
+        assert_eq!(unescape_tag_value(space), "Hello, world!");
+
+        let semicolon = "semi\\:";
+        assert_eq!(unescape_tag_value(semicolon), "semi;");
+
+        let backslash = "\\\\/";
+        assert_eq!(unescape_tag_value(backslash), "\\/");
+
+        let backslash_s = "\\\\s";
+        assert_eq!(unescape_tag_value(backslash_s), "\\s");
+
+        let fake = "\\b";
+        assert_eq!(unescape_tag_value(fake), "b");
+
+        let multi = "\\s\\s";
+        assert_eq!(unescape_tag_value(multi), "  ");
+
+        let all = "\\\\\\s\\:\\r\\n\\a";
+        assert_eq!(unescape_tag_value(all), "\\ ;\r\na");
+
+        let trailing = "test\\";
+        assert_eq!(unescape_tag_value(trailing), "test");
+    }
+
+    #[test]
+    fn escape_tags() {
+        let space = "Hello, world!";
+        assert_eq!(escape_tag_value(space), "Hello,\\sworld!");
+
+        let semicolon = "semi;";
+        assert_eq!(escape_tag_value(semicolon), "semi\\:");
+
+        let backslash = "\\/";
+        assert_eq!(escape_tag_value(backslash), "\\\\/");
+
+        let space = " ";
+        assert_eq!(escape_tag_value(space), "\\s");
+
+        let fake = "\\b";
+        assert_eq!(escape_tag_value(fake), "\\\\b");
+
+        let multi = "  ";
+        assert_eq!(escape_tag_value(multi), "\\s\\s");
+
+        let all = "\\ ;\r\n\\a";
+        assert_eq!(escape_tag_value(all), "\\\\\\s\\:\\r\\n\\\\a");
     }
 }

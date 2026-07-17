@@ -2,7 +2,8 @@ use crate::irc_message::tags::OwnedTag;
 
 use super::{Notice, util::msg_from_param};
 
-impl Notice<'_> {
+impl Notice {
+    /// Text of the message, with invisible and special characters removed
     pub fn message_text(&self) -> &str {
         let msg_param = self
             .inner
@@ -11,6 +12,7 @@ impl Notice<'_> {
         msg_from_param(msg_param)
     }
 
+    /// Login of the channel the NOTICE message relates to
     pub fn channel_login(&self) -> &str {
         let chan_param = self
             .inner
@@ -23,11 +25,13 @@ impl Notice<'_> {
         }
     }
 
+    /// ID of the use the NOTICE message relates to
     pub fn target_user_id(&self) -> Option<&str> {
-        self.get_tag(OwnedTag::TargetUserId)
+        self.get_tag_raw(OwnedTag::TargetUserId)
     }
 
-    pub fn kind(&self) -> Option<Result<NoticeKind, NoticeParseError>> {
+    /// The kind of notice that was received
+    pub fn kind(&self) -> Option<Result<NoticeKind, UnknownNotice>> {
         self.get_tag(OwnedTag::MsgId).map(|t| t.parse())
     }
 }
@@ -56,6 +60,7 @@ macro_rules! notice {
             }
         }
 
+        /// Unknown notice kind
         #[derive(Debug, Clone, Copy)]
         pub struct $error_name;
 
@@ -68,6 +73,7 @@ macro_rules! notice {
         impl ::std::error::Error for $error_name {}
 
         impl $enum_name {
+            /// String representation of the notice kind
             pub fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$name => $key),*
@@ -78,7 +84,6 @@ macro_rules! notice {
         impl ::core::str::FromStr for $enum_name {
             type Err = $error_name;
 
-            // Required method
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 match s {
                     $(
@@ -93,7 +98,7 @@ macro_rules! notice {
 
 notice!(
     /// the kind of NOTICE message this is
-    NoticeKind, NoticeParseError
+    NoticeKind, UnknownNotice
     /// This room is no longer in emote-only mode.
     "emote_only_off" = EmoteOnlyOff,
     /// This room is now in emote-only mode.

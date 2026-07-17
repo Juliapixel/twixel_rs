@@ -9,7 +9,7 @@ hashbrown = { version = "0.15" }
 log = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 tokio = { version = "1.35", features = ["sync", "time"] }
-tokio-tungstenite = { version = "0.26" }
+tokio-tungstenite = { version = "0.26", optional = true}
 rand = "0.9"
 thiserror = "2.0"
 chrono = { version = "0.4", optional = true }
@@ -20,7 +20,8 @@ bitflags = "2.4"
 either = "1.13"
 
 [dev-dependencies]
-criterion = "0.5"
+divan = "0.1"
+mimalloc = "0.1"
 serde_json = "1.0"
 
 [[bench]]
@@ -28,6 +29,8 @@ name = "benches"
 harness = false
 
 [features]
+default = ["connection"]
+connection = ["dep:tokio-tungstenite"]
 native-tls = ["tokio-tungstenite/native-tls"]
 rustls = [
     "tokio-tungstenite/rustls",

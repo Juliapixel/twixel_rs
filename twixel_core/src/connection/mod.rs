@@ -1,56 +1,70 @@
-use std::task::Poll;
+use std::{collections::VecDeque, task::Poll};
 
 use error::ConnectionError;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, Stream, StreamExt, stream::FusedStream};
 use hashbrown::HashSet;
 use log::{debug, warn};
-use smallvec::SmallVec;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message as WsMessage};
 
 pub mod pool;
-// #[cfg(feature = "unstable")]
-// pub mod stream;
 
 pub use pool::ConnectionPool;
 
 use crate::{
-    auth::Auth,
+    auth::AuthProvider,
     irc_message::{
         ToIrcMessage, builder::MessageBuilder, command::IrcCommand, message::IrcMessage,
     },
 };
 
+/// Error types associated with [Connection] and related operations
 pub mod error {
     use thiserror::Error;
     use tokio_tungstenite::tungstenite::{Error as TungsteniteError, error::ProtocolError};
 
     use crate::irc_message::error::IrcMessageParseError;
 
+    /// [Connection](super::Connection) errors
     #[derive(Debug, Error)]
     pub enum ConnectionError {
+        /// A method that requires a started connection was called
         #[error("this Connection has not been started yet")]
         NotStarted,
+        /// An already started [Connection] was attempted to be started
         #[error("this Connection has already already started")]
         AlreadyStarted,
+        /// A closed [Connection] was read/written to
         #[error("this Connection has been closed")]
         Closed,
+        /// An Error in the `tokio_tungstenite` websocket library
         #[error(transparent)]
         TungsteniteError(TungsteniteError),
+        /// An invalid IRCv3 message was received from the websocket
         #[error("the received message from the websocket was not a valid IRC message:\n {0}")]
         InvalidMessage(#[from] IrcMessageParseError),
+        /// No content was received from the underlying websocket connection
+        #[error("the Connection received a websocket message, but no valid content was found")]
+        NoMessage,
     }
 
+    /// [ConnectionPool](super::pool::ConnectionPool) errors
     #[derive(Debug, Error)]
     pub enum PoolError {
+        /// An error related to an internal [Connection](super::Connection)
         #[error(transparent)]
         ConnectionError(#[from] ConnectionError),
+        /// A channel interaction was requested for a channel that was not joined
         #[error("The requested channel was not found {0}")]
         ChannelNotFound(String),
+        /// A requested channel didn't have a connection assigned to it
         #[error("requested channel didn't have a connection assigned to it {0}")]
         NoConnectionAssigned(String),
+        /// Tried to operate on a [Connection](super::Connection) by index but the
+        /// index was out of bounds
         #[error("requested index is {0} but length is {1}")]
         IndexOutOfBounds(usize, usize),
+        /// There are no connections to receive from
         #[error("there are no connections to receive from")]
         NoConnections,
     }
@@ -72,13 +86,16 @@ const TWITCH_IRC_URL: &str = "wss://irc-ws.chat.twitch.tv:443";
 type Websocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// handles the interface between the raw `Socket` and the `TwitchIrcClient`
-pub struct Connection {
+pub struct Connection<A: AuthProvider> {
     socket: Option<Websocket>,
     state: ConnectionState,
     channel_list: HashSet<String>,
-    auth_info: Auth,
+    buffer: VecDeque<Result<IrcMessage, ConnectionError>>,
+    auth_info: Box<A>,
 }
 
+/// State of the [Connection]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ConnectionState {
     /// Connection is closed
     Closed,
@@ -89,16 +106,26 @@ pub enum ConnectionState {
 }
 
 // TODO: add logging
-impl Connection {
-    pub fn new(channels: impl IntoIterator<Item = impl Into<String>>, auth: Auth) -> Self {
+impl<A: AuthProvider> Connection<A> {
+    /// Create a new [Connection] that joins `channels` upon being started
+    pub fn new(channels: impl IntoIterator<Item = impl Into<String>>, auth: A) -> Self {
         Self {
             socket: None,
             state: ConnectionState::Closed,
             channel_list: channels.into_iter().map(|i| i.into()).collect(),
-            auth_info: auth,
+            buffer: VecDeque::new(),
+            auth_info: Box::new(auth),
         }
     }
 
+    /// The state of this connection
+    pub fn state(&self) -> ConnectionState {
+        self.state
+    }
+
+    /// Connects to the IRC websocket and sends `JOIN` messages for added channels.
+    ///
+    /// Errors if the connection is already started.
     pub async fn start(&mut self) -> Result<(), ConnectionError> {
         if self.socket.is_some() {
             warn!("tried starting connection when it was already started");
@@ -112,7 +139,7 @@ impl Connection {
         self.socket = Some(new_socket);
         self.state = ConnectionState::StartedUnauthed;
 
-        let (pass, nick) = self.auth_info.into_commands();
+        let (pass, nick) = self.auth_info.get_commands();
 
         let join_msg = {
             if !self.channel_list.is_empty() {
@@ -132,11 +159,14 @@ impl Connection {
         if let Some(join_msg) = join_msg {
             self.feed(join_msg.to_owned()).await?;
         }
-        self.flush().await?;
+        <Self as SinkExt<MessageBuilder>>::flush(self).await?;
+
+        self.state = ConnectionState::Working;
 
         Ok(())
     }
 
+    /// Closes the websocket and restarts the connection.
     pub async fn restart(&mut self) -> Result<(), ConnectionError> {
         if let Some(mut socket) = self.socket.take() {
             socket.close(None).await?;
@@ -144,47 +174,65 @@ impl Connection {
         self.start().await
     }
 
+    /// Immediately sends `JOIN` message if the connection has been started, otherwise
+    /// sends it when [Connection::start] is called
     pub async fn join(&mut self, channel: &str) -> Result<(), ConnectionError> {
-        if self.channel_list.insert(channel.into()) {
+        if self.state != ConnectionState::Working {
+            self.channel_list.insert(channel.into());
+            return Ok(());
+        } else if self.channel_list.insert(channel.into()) {
             self.send(MessageBuilder::join(std::iter::once(&channel)))
                 .await?;
         }
         Ok(())
     }
 
+    /// Sends `PART` message if the connection has been started, otherwise
+    /// removes it from channels joined when [Connection::start] is called
     pub async fn part(&mut self, channel: &str) -> Result<(), ConnectionError> {
-        if self.channel_list.remove(channel) {
+        if self.state != ConnectionState::Working {
+            self.channel_list.remove(channel);
+            return Ok(());
+        } else if self.channel_list.remove(channel) {
             self.send(MessageBuilder::part(std::iter::once(channel)))
                 .await?;
         }
         Ok(())
     }
 
-    /// receives twitch messages directly
-    pub async fn receive(&mut self) -> Result<SmallVec<[IrcMessage<'static>; 4]>, ConnectionError> {
+    /// Receives a single new message from Twitch. Multi-message websocket messages
+    /// have their IRC messages buffered and are returned immediately upon subsequent calls
+    /// to this function.
+    pub async fn receive(&mut self) -> Result<IrcMessage, ConnectionError> {
+        if let Some(next) = self.buffer.pop_front() {
+            log::trace!(
+                "Received new message: {:?}",
+                next.as_ref().map(|i| i.inner())
+            );
+            return next;
+        }
+
         if let Some(socket) = &mut self.socket {
             let received_msg = socket.next().await.ok_or(ConnectionError::Closed)??;
 
-            let mut received = SmallVec::new();
+            let mut msgs =
+                IrcMessage::from_ws_message(&received_msg).map(|n| n.map_err(Into::into));
 
-            for recv in IrcMessage::from_ws_message(&received_msg) {
-                match recv {
-                    Ok(r) => {
-                        if r.get_command() == IrcCommand::AuthSuccessful {
-                            self.state = ConnectionState::Working;
-                        }
-                        received.push(r.to_static())
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            }
+            let next = msgs.next().ok_or(ConnectionError::NoMessage)?;
 
-            Ok(received)
+            self.buffer.extend(msgs);
+
+            log::trace!(
+                "Received new message: {:?}",
+                next.as_ref().map(|i| i.inner())
+            );
+            next
         } else {
             Err(ConnectionError::NotStarted)
         }
     }
 
+    /// Immediately sends an IRC message to Twitch
     pub async fn send(&mut self, message: impl ToIrcMessage) -> Result<(), ConnectionError> {
         if let Some(socket) = &mut self.socket {
             let command = message.get_command();
@@ -204,6 +252,8 @@ impl Connection {
         }
     }
 
+    /// Immediately sends many IRC messages to Twitch. This method should be
+    /// preferred to using [send](Connection::send) when many messages must be sent
     pub async fn send_batched(
         &mut self,
         messages: impl IntoIterator<Item = impl ToIrcMessage>,
@@ -229,47 +279,57 @@ impl Connection {
         }
     }
 
+    /// Number of channels added to this [Connection]
     pub fn get_channel_count(&self) -> usize {
         self.channel_list.len()
     }
+}
 
-    pub fn to_stream(self) -> impl futures_util::Stream {
-        futures_util::stream::unfold(self, |mut state| async move {
-            Some((state.receive().await, state))
-        })
+impl<A: AuthProvider> FusedStream for Connection<A> {
+    fn is_terminated(&self) -> bool {
+        self.socket.as_ref().is_some_and(|s| s.is_terminated())
     }
 }
 
-impl futures_util::Stream for Connection {
-    type Item = Result<SmallVec<[IrcMessage<'static>; 4]>, ConnectionError>;
+impl<A: AuthProvider> Stream for Connection<A> {
+    type Item = Result<IrcMessage, ConnectionError>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
+        if let Some(next) = self.buffer.pop_front() {
+            log::trace!(
+                "Received new message: {:?}",
+                next.as_ref().map(|i| i.inner())
+            );
+            return Poll::Ready(Some(next));
+        }
         let Some(socket) = self.socket.as_mut() else {
-            return Poll::Ready(None);
+            return Poll::Ready(Some(Err(ConnectionError::NotStarted)));
         };
         let ready = futures_util::ready!(socket.poll_next_unpin(cx));
         match ready {
             Some(Ok(recv)) => {
-                let mut received = SmallVec::new();
-                for msg in IrcMessage::from_ws_message(&recv) {
-                    match msg {
-                        Ok(msg) => received.push(msg.to_static()),
-                        Err(e) => return Poll::Ready(Some(Err(e.into()))),
-                    }
-                }
+                let mut msgs = IrcMessage::from_ws_message(&recv).map(|n| n.map_err(Into::into));
 
-                Poll::Ready(Some(Ok(received)))
+                let next = msgs.next().ok_or(ConnectionError::NoMessage)?;
+
+                self.buffer.extend(msgs);
+
+                log::trace!(
+                    "Received new message: {:?}",
+                    next.as_ref().map(|i| i.inner())
+                );
+                Poll::Ready(Some(next))
             }
             Some(Err(e)) => Poll::Ready(Some(Err(e.into()))),
-            None => todo!(),
+            None => Poll::Ready(Some(Err(ConnectionError::Closed))),
         }
     }
 }
 
-impl<'a> futures_util::Sink<MessageBuilder<'a>> for Connection {
+impl<T: ToIrcMessage, A: AuthProvider> Sink<T> for Connection<A> {
     type Error = ConnectionError;
 
     fn poll_ready(
@@ -283,14 +343,11 @@ impl<'a> futures_util::Sink<MessageBuilder<'a>> for Connection {
             .map_err(Into::into)
     }
 
-    fn start_send(
-        mut self: std::pin::Pin<&mut Self>,
-        item: MessageBuilder<'a>,
-    ) -> Result<(), Self::Error> {
+    fn start_send(mut self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
         self.socket
             .as_mut()
             .ok_or(ConnectionError::NotStarted)?
-            .start_send_unpin(WsMessage::Text(item.build().into()))
+            .start_send_unpin(WsMessage::Text(item.to_message().into()))
             .map_err(Into::into)
     }
 

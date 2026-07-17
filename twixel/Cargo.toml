@@ -28,7 +28,7 @@ sqlx = { version = "0.8", features = ["chrono", "derive", "json", "macros", "mig
 thiserror = "2.0"
 tokio = { version = "1.45", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-twixel_core = { path = "../twixel_core", features = ["rustls", "chrono"] }
+twixel_core = { path = "../twixel_core", features = ["rustls", "chrono", "connection", "serde", "unstable"] }
 unicode-segmentation = "1.12"
 
 [dependencies.reqwest]

@@ -1,12 +1,19 @@
-//! semantic wrappers around each kind of IRC message command, most of these don't
+//! Semantic wrappers around each kind of IRC message command, most of these don't
 //! even do anything useful, but are there for completeness' sake
 
-mod clearchat;
-mod clearmsg;
-mod notice;
-mod ping;
-mod privmsg;
-mod userstate;
+/// Utilities related to the [CLEARCHAT](ClearChat) message kind
+pub mod clearchat;
+/// Utilities related to the [CLEARMSG](ClearMsg) message kind
+pub mod clearmsg;
+/// Utilities related to the [NOTICE](Notice) message kind
+pub mod notice;
+/// Utilities related to the [PING](Ping) message kind
+pub mod ping;
+/// Utilities related to the [PRIVMSG](PrivMsg) message kind
+pub mod privmsg;
+/// Utilities related to the [USERSTATE](UserState) message kind
+pub mod userstate;
+
 mod util;
 
 use std::fmt::Display;
@@ -15,45 +22,50 @@ use either::Either;
 
 use crate::IrcMessage;
 
-pub trait SemanticIrcMessage<'a>: Sized {
-    fn to_inner(self) -> IrcMessage<'a>
-    where
-        Self: 'a;
+/// Trait for the semantic wrappers around the different message types
+pub trait SemanticIrcMessage: Sized + private::Sealed {
+    /// Take the untyped [IrcMessage]
+    fn to_inner(self) -> IrcMessage;
 
-    fn inner(&self) -> &IrcMessage<'a>;
+    /// Take a reference to the untyped [IrcMessage]
+    fn inner(&self) -> &IrcMessage;
 
+    /// Convert from an untyped [IrcMessage]
     #[allow(clippy::result_large_err, reason = "intended")]
-    fn from_message(msg: IrcMessage<'a>) -> Result<Self, IrcMessage<'a>>
-    where
-        Self: 'a;
+    fn from_message(msg: IrcMessage) -> Result<Self, IrcMessage>;
 }
 
-impl<'a, L, R> SemanticIrcMessage<'a> for either::Either<L, R>
+mod private {
+    pub trait Sealed {}
+}
+
+impl<L, R> private::Sealed for either::Either<L, R>
 where
-    L: SemanticIrcMessage<'a>,
-    R: SemanticIrcMessage<'a>,
+    L: SemanticIrcMessage,
+    R: SemanticIrcMessage,
 {
-    fn to_inner(self) -> IrcMessage<'a>
-    where
-        Self: 'a,
-    {
+}
+
+impl<L, R> SemanticIrcMessage for either::Either<L, R>
+where
+    L: SemanticIrcMessage,
+    R: SemanticIrcMessage,
+{
+    fn to_inner(self) -> IrcMessage {
         match self {
             either::Either::Left(l) => l.to_inner(),
             either::Either::Right(r) => r.to_inner(),
         }
     }
 
-    fn inner(&self) -> &IrcMessage<'a> {
+    fn inner(&self) -> &IrcMessage {
         match self {
             either::Either::Left(l) => l.inner(),
             either::Either::Right(r) => r.inner(),
         }
     }
 
-    fn from_message(msg: IrcMessage<'a>) -> Result<Self, IrcMessage<'a>>
-    where
-        Self: 'a,
-    {
+    fn from_message(msg: IrcMessage) -> Result<Self, IrcMessage> {
         match L::from_message(msg) {
             Ok(l) => Ok(Either::Left(l)),
             Err(m) => R::from_message(m).map(|r| Either::Right(r)),
@@ -67,30 +79,31 @@ macro_rules! impl_semantic {
             #[derive(Debug, Clone, PartialEq, Eq)]
             #[cfg_attr(feature = "serde", derive(serde::Serialize))]
             #[cfg_attr(feature = "serde", serde(transparent))]
-            #[doc = concat!("a semantic wrapper around a ", stringify!($cmd), " [IrcMessage](super::message::IrcMessage)")]
-            pub struct $cmd<'a> {
-                inner: $crate::irc_message::message::IrcMessage<'a>
+            #[doc = concat!("a semantic wrapper around a [", stringify!($cmd), "](crate::IrcCommand::", stringify!($cmd), ") [IrcMessage](super::message::IrcMessage)")]
+            pub struct $cmd {
+                inner: $crate::irc_message::message::IrcMessage
             }
 
-            impl<'a> ::std::ops::Deref for $cmd<'a> {
-                type Target = $crate::irc_message::message::IrcMessage<'a>;
+            impl ::std::ops::Deref for $cmd {
+                type Target = $crate::irc_message::message::IrcMessage;
 
                 fn deref(&self) -> &Self::Target {
                     &self.inner
                 }
             }
 
-            impl<'a> $crate::irc_message::semantic::SemanticIrcMessage<'a> for $cmd<'a> {
-                fn to_inner(self) -> IrcMessage<'a>
-                    where Self: 'a {
+            impl private::Sealed for $cmd {}
+
+            impl $crate::irc_message::semantic::SemanticIrcMessage for $cmd {
+                fn to_inner(self) -> IrcMessage {
                     self.inner
                 }
 
-                fn inner(&self) -> &$crate::irc_message::message::IrcMessage<'a> {
+                fn inner(&self) -> &$crate::irc_message::message::IrcMessage {
                     &self.inner
                 }
 
-                fn from_message(msg: $crate::irc_message::message::IrcMessage<'a>) -> Result<Self, IrcMessage<'a>> {
+                fn from_message(msg: $crate::irc_message::message::IrcMessage) -> Result<Self, IrcMessage> {
                     if msg.get_command() == $crate::irc_message::command::IrcCommand::$cmd {
                         Ok(Self { inner: msg })
                     } else {
@@ -99,76 +112,68 @@ macro_rules! impl_semantic {
                 }
             }
 
-            impl<'a> $cmd<'a> {
-                pub fn from_any(any: AnySemantic<'a>) -> Option<Self> {
+            impl $cmd {
+                /// Tries to convert from [AnySemantic] to this type
+                pub fn from_any(any: AnySemantic) -> Option<Self> {
                     match any {
                         AnySemantic::$cmd(c) => Some(c),
                         _ => None
                     }
                 }
 
-                pub fn from_any_ref(any: &'a AnySemantic<'a>) -> Option<&'a Self> {
+                /// Tries to convert from [&AnySemantic](AnySemantic) to a reference to this type
+                pub fn from_any_ref(any: &AnySemantic) -> Option<&Self> {
                     match any {
                         AnySemantic::$cmd(c) => Some(c),
                         _ => None
                     }
-                }
-
-                pub fn to_static(self) -> $cmd<'static> {
-                    $cmd::<'static>::from_message(self.to_inner().to_static()).unwrap()
                 }
             }
         )+
 
-        /// enum containing all semantic wrappers around [](super::message::IrcMessage)
+        /// enum containing all semantic wrappers around [crate::IrcMessage]
         #[derive(Debug, Clone)]
-        pub enum AnySemantic<'a> {
-            $($cmd($cmd<'a>)),+
+        #[allow(missing_docs)]
+        pub enum AnySemantic {
+            $($cmd($cmd)),+
         }
 
-        impl<'a> ::std::ops::Deref for AnySemantic<'a> {
-            type Target = $crate::irc_message::message::IrcMessage<'a>;
+        impl ::std::ops::Deref for AnySemantic {
+            type Target = $crate::irc_message::message::IrcMessage;
 
             fn deref(&self) -> &Self::Target {
                 &self.inner()
             }
         }
 
-        impl<'a> From<IrcMessage<'a>> for AnySemantic<'a> {
-            fn from(value: IrcMessage<'a>) -> Self {
+        impl From<IrcMessage> for AnySemantic {
+            fn from(value: IrcMessage) -> Self {
                 match value.get_command() {
                     $($crate::irc_message::command::IrcCommand::$cmd => Self::$cmd($cmd::from_message(value).unwrap()),)+
-                    // _ => todo!()
                 }
             }
         }
 
-        impl<'a> $crate::irc_message::semantic::SemanticIrcMessage<'a> for AnySemantic<'a> {
-            fn to_inner(self) -> IrcMessage<'a>
-                where Self: 'a
-            {
+        impl private::Sealed for AnySemantic {}
+
+        impl $crate::irc_message::semantic::SemanticIrcMessage for AnySemantic {
+            fn to_inner(self) -> IrcMessage {
                 match self {
                     $(Self::$cmd(inner) => inner.to_inner()),+
                 }
             }
 
-            fn inner(&self) -> &$crate::irc_message::message::IrcMessage<'a> {
+            fn inner(&self) -> &$crate::irc_message::message::IrcMessage {
                 match self {
                     $(Self::$cmd(inner) => inner.inner()),+
                 }
             }
 
-            fn from_message(msg: $crate::irc_message::message::IrcMessage<'a>) -> Result<Self, IrcMessage<'a>> {
+            fn from_message(msg: $crate::irc_message::message::IrcMessage) -> Result<Self, IrcMessage> {
                 Ok(Self::from(msg))
             }
         }
     };
-}
-
-impl<'a> AnySemantic<'a> {
-    pub fn to_static(self) -> AnySemantic<'static> {
-        AnySemantic::<'static>::from_message(self.to_inner().to_static()).unwrap()
-    }
 }
 
 impl_semantic!(
@@ -196,8 +201,8 @@ impl_semantic!(
     Useless
 );
 
-impl Display for AnySemantic<'_> {
+impl Display for AnySemantic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.inner().raw())
+        f.write_str(self.inner().inner())
     }
 }

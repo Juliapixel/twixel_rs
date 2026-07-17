@@ -125,7 +125,7 @@ impl IntoResponse for sqlx::Error {
 impl Extract for TwixelUser {
     type Error = Option<sqlx::Error>;
 
-    async fn extract(msg: &AnySemantic<'_>, data: Arc<BotData>) -> Result<Self, Self::Error> {
+    async fn extract(msg: &AnySemantic, data: Arc<BotData>) -> Result<Self, Self::Error> {
         let pool = Data::<SqlitePool>::extract(msg, data).await.unwrap();
 
         let AnySemantic::PrivMsg(msg) = msg else {
