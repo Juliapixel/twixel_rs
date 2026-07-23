@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use rand::Rng;
+use rand::RngExt;
 
 use crate::irc_message::{builder::MessageBuilder, command::IrcCommand};
 

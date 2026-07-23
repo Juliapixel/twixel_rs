@@ -149,7 +149,7 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
             | Type::BigInt
             | Type::Constructor
             | Type::Symbol
-            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val).map(|i| i.0).unwrap(),
+            | Type::Uninitialized => Coerced::<String>::from_js(&ctx, val.to_owned()).map(|i| i.0).unwrap(),
             Type::String => val
                 .as_string()
                 .map(|i| {
@@ -164,6 +164,9 @@ fn repl_print_value(val: Value<'_>) -> LocalBoxFuture<'_, String> {
                 Ok(v) => repl_print_value(v).await,
                 Err(e) => rquickjs_err_to_pretty(e, &ctx),
             },
+            Type::Proxy => {
+                ctx.json_stringify(val.into_proxy().unwrap()).and_then(|i| i.map(|s| s.to_string()).unwrap()).expect("WAAAA")
+            }
         }
     })
 }

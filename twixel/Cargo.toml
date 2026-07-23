@@ -15,11 +15,11 @@ either = { version = "1.13", features = ["serde"] }
 env_logger = "0.11"
 futures = "0.3"
 getset = "0.1"
-hashbrown = "0.15"
+hashbrown = "0.17"
 log = "0.4"
 owo-colors = "4.1"
 parking_lot = "0.12"
-rand = "0.9"
+rand = "0.10"
 regex = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -32,13 +32,13 @@ twixel_core = { path = "../twixel_core", features = ["rustls", "chrono", "connec
 unicode-segmentation = "1.12"
 
 [dependencies.reqwest]
-version = "0.12"
+version = "0.13"
 default-features = false
 features = [
     "json",
     "charset",
     "http2",
-    "rustls-tls",
+    "rustls",
     "brotli",
     "deflate",
     "gzip",
@@ -46,9 +46,9 @@ features = [
 ]
 
 [dependencies.rquickjs]
-version = "0.9"
+version = "0.12"
 features = ["either", "futures", "macro"]
 
 [target.aarch64-linux-android.dependencies.rquickjs]
-version = "0.9"
+version = "0.12"
 features = ["either", "futures", "macro", "bindgen"]
