@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt::Display, ops::Range, str::FromStr};
+use std::{convert::Infallible, fmt::Display, range::Range, str::FromStr};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -26,13 +26,13 @@ impl RawPrefix {
                         + user_separator_pos;
 
                 Some(Self::Full {
-                    nickname: prefix_start..user_separator_pos,
-                    username: user_separator_pos + 1..host_separator_pos,
-                    host: host_separator_pos + 1..prefix_end,
+                    nickname: (prefix_start..user_separator_pos).into(),
+                    username: (user_separator_pos + 1..host_separator_pos).into(),
+                    host: (host_separator_pos + 1..prefix_end).into(),
                 })
             }
             None => Some(Self::OnlyHostname {
-                host: prefix_start..prefix_end,
+                host: (prefix_start..prefix_end).into(),
             }),
         }
     }

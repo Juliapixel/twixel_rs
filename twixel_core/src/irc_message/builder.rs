@@ -84,7 +84,7 @@ impl<'a> MessageBuilder<'a> {
             } else {
                 write!(&mut out, ";").unwrap();
             }
-            write!(&mut out, "{}={}", &tag.0, tag.1).unwrap()
+            write!(&mut out, "{}={}", tag.0, tag.1).unwrap()
         }
 
         if !self.tags.is_empty() {
@@ -100,8 +100,11 @@ impl<'a> MessageBuilder<'a> {
         write!(&mut out, "{}", self.command).unwrap();
 
         // params
-        for param in self.params.into_iter() {
-            write!(&mut out, " {param}",).unwrap();
+        if let [params @ .., last] = &self.params[..] {
+            for param in params {
+                write!(&mut out, " {param}",).unwrap();
+            }
+            write!(&mut out, " :{last}").unwrap();
         }
 
         // CRLF EOL
@@ -267,7 +270,7 @@ fn message_builder() {
             host: "juliapixel.com".into(),
         })
         .add_param("#juliapixel")
-        .add_param(":hi hello there!")
+        .add_param("hi hello there!")
         .build();
 
     let built_parsed: IrcMessage = built.parse().unwrap();

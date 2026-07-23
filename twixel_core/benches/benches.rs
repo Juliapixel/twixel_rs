@@ -16,7 +16,7 @@ const COUNT: usize = 20000;
 #[global_allocator]
 static ALLOC: MiMalloc = MiMalloc {};
 
-#[divan::bench(threads = [0, 1], min_time = 1)]
+#[divan::bench(threads = [0, 1, 4], min_time = 1)]
 fn deserialize_shit_ton(bencher: Bencher) {
     bencher
         .with_inputs(|| SHIT_TON.lines().take(COUNT).collect::<Vec<&str>>())
@@ -24,7 +24,7 @@ fn deserialize_shit_ton(bencher: Bencher) {
         .input_counter(|i| BytesCount::new(i.iter().fold(0, |r, i| r + i.len())))
         .bench_local_values(move |messages| {
             for i in messages.into_iter() {
-                IrcMessage::try_from(black_box(i)).unwrap();
+                IrcMessage::<String>::try_from(i).unwrap();
             }
         });
 }

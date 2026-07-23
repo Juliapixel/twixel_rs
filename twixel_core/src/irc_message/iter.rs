@@ -1,3 +1,5 @@
+use std::{marker::PhantomData, ops::Deref};
+
 use memchr::memchr;
 
 use crate::IrcMessage;
@@ -5,27 +7,30 @@ use crate::IrcMessage;
 use super::error::IrcMessageParseError;
 
 /// Iterator over many IRC messages in a single string, separated by CRLF sequences
-pub struct IrcMessageParseIter<'a> {
+pub struct IrcMessageParseIter<'a, C> {
     pos: usize,
     inner: &'a str,
+    _phantom: PhantomData<C>,
 }
 
-impl<'a> IrcMessageParseIter<'a> {
+impl<'a, C> IrcMessageParseIter<'a, C> {
     /// Create a new [IrcMessageParseIter]
     pub(crate) fn new(text: &'a str) -> Self {
         Self {
             inner: text,
             pos: 0,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<'a> Iterator for IrcMessageParseIter<'a> {
-    type Item = Result<IrcMessage, IrcMessageParseError>;
+impl<'a, C: for<'b> From<&'b str> + Deref<Target = str>> Iterator for IrcMessageParseIter<'a, C> {
+    type Item = Result<IrcMessage<C>, IrcMessageParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = memchr(b'\n', &self.inner.as_bytes()[self.pos..])?;
-        let parsed = self.inner[self.pos..=(self.pos + next)].parse::<IrcMessage>();
+        let parsed: Result<IrcMessage<C>, IrcMessageParseError> =
+            self.inner[self.pos..=(self.pos + next)].parse::<IrcMessage<C>>();
         self.pos += next + 1;
         Some(parsed)
     }

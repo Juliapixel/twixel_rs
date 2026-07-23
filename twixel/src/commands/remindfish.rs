@@ -112,10 +112,10 @@ mod test {
 
     #[test]
     fn catch_regex() {
-        assert!(
-            super::CATCH_REGEX
-                .captures("@gawblemachine, You caught a ✨ 🪝 ✨ ! It weighs 1.41 lbs. (30m cooldown after a catch)")
-                .is_some_and(|c| c.get(1).is_some_and(|c| c.as_str() == "🪝"))
-        )
+        let captured = super::CATCH_REGEX
+            .captures("@gawblemachine, You caught a ✨ 🪝 ✨ ! It weighs 1.41 lbs. (30m cooldown after a catch)")
+            .and_then(|c| c.get(2))
+            .map(|c| c.as_str());
+        assert_eq!(captured, Some("🪝"));
     }
 }

@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn raw_tag_parsing() {
         let tag = "display-name";
-        assert_eq!(RawTag::DisplayName, RawTag::parse(tag, 0..tag.len()));
+        assert_eq!(RawTag::DisplayName, RawTag::parse(tag, (0..tag.len()).into()));
     }
 
     #[test]
@@ -116,16 +116,16 @@ mod tests {
         let full_prefix = ":julia!juliapixel@juliapixel.com FOOBAR";
         let raw_full_prefix = RawPrefix::parse(full_prefix, 1, 32).unwrap();
         let right_full_prefix = RawPrefix::Full {
-            nickname: 1..6,
-            username: 7..17,
-            host: 18..32,
+            nickname: (1..6).into(),
+            username: (7..17).into(),
+            host: (18..32).into(),
         };
 
         assert_eq!(raw_full_prefix, right_full_prefix);
 
         let host_prefix = ":irc.juliapixel.com FOOBAR";
         let raw_host_prefix = RawPrefix::parse(host_prefix, 1, 19).unwrap();
-        let right_host_prefix = RawPrefix::OnlyHostname { host: 1..19 };
+        let right_host_prefix = RawPrefix::OnlyHostname { host: (1..19).into() };
 
         assert_eq!(raw_host_prefix, right_host_prefix)
     }

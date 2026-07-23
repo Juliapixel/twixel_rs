@@ -4,7 +4,11 @@ use hashbrown::HashMap;
 use memchr::memchr_iter;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, ops::Range};
+use smallvec::SmallVec;
+use std::{
+    borrow::Cow,
+    range::Range,
+};
 use thiserror::Error;
 
 use super::iter::BadgeIter;
@@ -22,10 +26,10 @@ enum Escape {
 fn find_escape_seq(val: &str) -> Option<(Escape, Range<usize>)> {
     let backslash = val.find("\\")?;
     let Some(next) = val[backslash..].chars().nth(1) else {
-        return Some((Escape::TrailingSlash, backslash..backslash + 1));
+        return Some((Escape::TrailingSlash, (backslash..backslash + 1).into()));
     };
 
-    let range = backslash..(backslash + 1 + next.len_utf8());
+    let range = (backslash..(backslash + 1 + next.len_utf8())).into();
 
     match next {
         's' => Some((Escape::Space, range)),
@@ -84,6 +88,22 @@ pub(crate) fn escape_tag_value(val: &str) -> Cow<'_, str> {
     }
 }
 
+#[cfg(feature = "serde")]
+fn ser_range<S>(val: &Range<usize>, ser: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    core::ops::Range::serialize(&(*val).into(), ser)
+}
+
+#[cfg(feature = "serde")]
+fn deser_range<'de, D>(deser: D) -> Result<Range<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    core::ops::Range::deserialize(deser).map(Into::into)
+}
+
 macro_rules! raw_tags {
     (
         $(#[$top_comment:meta])*
@@ -94,7 +114,7 @@ macro_rules! raw_tags {
         ),*
     ) => {
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-        #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
         #[non_exhaustive]
         $(#[$top_comment])*
         pub(crate) enum $raw_tag {
@@ -104,12 +124,13 @@ macro_rules! raw_tags {
                 $name,
             )+
             /// An unknown tag key value
+            #[cfg_attr(feature = "serde", serde(serialize_with = "ser_range", deserialize_with = "deser_range"))]
             Unknown(Range<usize>)
         }
 
         impl $raw_tag {
             pub fn parse(src: &str, range: Range<usize>) -> Self {
-                match &src[range.clone()] {
+                match &src[range] {
                     $($key => Self::$name,)*
                     _ => {
                         Self::Unknown(range)
@@ -117,17 +138,17 @@ macro_rules! raw_tags {
                 }
             }
 
-            pub fn to_owned(&self, src: &str) -> $tag {
+            pub fn to_owned_tag(self, src: &str) -> $tag {
                 match self {
                     $(Self::$name => $tag::$name,)*
-                    Self::Unknown(r) => $tag::Unknown(String::from(&src[r.clone()]))
+                    Self::Unknown(r) => $tag::Unknown(String::from(&src[r]))
                 }
             }
 
-            pub fn to_string<'a>(&self, src: &'a str) -> &'a str {
+            pub fn as_str<'a>(&self, src: &'a str) -> &'a str {
                 match self {
                     $(Self::$name => $key,)*
-                    Self::Unknown(r) => &src[r.clone()]
+                    Self::Unknown(r) => &src[*r]
                 }
             }
         }
@@ -145,6 +166,16 @@ macro_rules! raw_tags {
             )+
             /// An unknown tag key value
             Unknown(String)
+        }
+
+        impl $tag {
+            /// Panics if trying to convert from Unknown variant
+            pub(crate) fn to_raw(&self) -> $raw_tag {
+                match self {
+                    $(Self::$name => $raw_tag::$name,)+
+                    Self::Unknown(_) => panic!(concat!("Cannot convert from ", stringify!($tag::Unknown), " to ", stringify!($raw_tag)))
+                }
+            }
         }
 
         impl From<&str> for $tag {
@@ -312,16 +343,30 @@ pub enum IRCTagParseError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RawIrcTags {
     /// first item is the [RawTag] enum and the second is the position of the tag's value
-    // FIXME: makes duplicates for Unknown tags
     pub(crate) tags: HashMap<RawTag, Range<usize>>,
+    pub(crate) unknown: SmallVec<[(Range<usize>, Range<usize>); 4]>,
 }
 
 impl RawIrcTags {
     /// tries to parse a [RawIrcTags] from the tags part of an IRC message, without
     /// the leading `@` and the trailing space
-    #[inline]
     pub(crate) fn new(raw: &str, raw_start_idx: usize, raw_end_idx: usize) -> Option<Self> {
         let mut tags = HashMap::new();
+        let mut unknown = SmallVec::new();
+
+        let mut insert_tag =
+            |start: Range<usize>, end: Range<usize>| match RawTag::parse(raw, start) {
+                RawTag::Unknown(range) => {
+                    let key = &raw[range];
+                    match unknown.binary_search_by_key(&key, |(k, _)| &raw[*k]) {
+                        Ok(found) => unknown[found] = (range, end),
+                        Err(idx) => unknown.insert(idx, (range, end)),
+                    }
+                }
+                t => {
+                    tags.insert(t, end);
+                }
+            };
 
         // position of last found start of tag
         let mut last_pos: usize = raw_start_idx;
@@ -332,9 +377,9 @@ impl RawIrcTags {
             // positon of current parsed tag's divider
             if let Some(divider) = memchr::memchr(b'=', &raw.as_bytes()[last_pos..pos - 1]) {
                 let divider = divider + last_pos;
-                tags.insert(RawTag::parse(raw, last_pos..divider), divider + 1..pos - 1);
+                insert_tag((last_pos..divider).into(), (divider + 1..pos - 1).into());
             } else {
-                tags.insert(RawTag::parse(raw, last_pos..pos - 1), pos - 1..pos - 1);
+                insert_tag((last_pos..pos - 1).into(), (pos - 1..pos - 1).into());
             }
 
             last_pos = pos;
@@ -344,18 +389,37 @@ impl RawIrcTags {
         if let Some(divider) =
             memchr::memchr(b'=', &raw.as_bytes()[last_pos..]).map(|d| d + last_pos)
         {
-            tags.insert(
-                RawTag::parse(raw, last_pos..divider),
-                divider + 1..raw_end_idx,
-            );
+            insert_tag(
+                (last_pos..divider).into(),
+                (divider + 1..raw_end_idx).into(),
+            )
         } else {
-            tags.insert(
-                RawTag::parse(raw, last_pos..raw_end_idx),
-                raw_end_idx..raw_end_idx,
+            insert_tag(
+                (last_pos..raw_end_idx).into(),
+                (raw_end_idx..raw_end_idx).into(),
             );
         }
 
-        Some(Self { tags })
+        Some(Self { tags, unknown })
+    }
+
+    pub fn value_eq(&self, src: &str, other: &Self, other_src: &str) -> bool {
+        self.tags.len() == other.tags.len()
+            && self.tags.iter().all(|(k, v)| {
+                other
+                    .tags
+                    .get(k)
+                    .is_some_and(|ov| other_src[*ov] == src[*v])
+            })
+            && self.unknown.len() == other.unknown.len()
+            && self.unknown.iter().all(|(k, v)| {
+                other
+                    .unknown
+                    .binary_search_by_key(&(&src[*k], &src[*v]), |(k, v)| {
+                        (&other_src[*k], &other_src[*v])
+                    })
+                    .is_ok()
+            })
     }
 
     /// Retrieves the value associated with the given tag.
@@ -364,8 +428,12 @@ impl RawIrcTags {
     /// - An empty string if the tag is present but no key is present
     /// - The value associated with the tag, with escape sequences removed
     pub fn get_value<'a>(&self, src: &'a str, tag: OwnedTag) -> Option<Cow<'a, str>> {
-        let found = self.tags.iter().find(|t| t.0.to_owned(src) == tag)?;
-        src.get(found.1.clone()).map(unescape_tag_value)
+        let found = if let OwnedTag::Unknown(tag) = tag {
+            self.unknown.iter().find(|(k, _)| src[*k] == tag)?.1
+        } else {
+            *self.tags.get(&tag.to_raw())?
+        };
+        src.get(found).map(unescape_tag_value)
     }
 
     /// Retrieves the value associated with the given tag.
@@ -374,8 +442,12 @@ impl RawIrcTags {
     /// - An empty string if the tag is present but no key is present
     /// - The value associated with the tag, with escape sequences not removed
     pub fn get_raw_value<'a>(&self, src: &'a str, tag: OwnedTag) -> Option<&'a str> {
-        let found = self.tags.iter().find(|t| t.0.to_owned(src) == tag)?;
-        src.get(found.1.clone())
+        let found = if let OwnedTag::Unknown(tag) = tag {
+            self.unknown.iter().find(|(k, _)| src[*k] == tag)?.1
+        } else {
+            *self.tags.get(&tag.to_raw())?
+        };
+        src.get(found)
     }
 
     /// Retrieves the value associated with the given tag.
@@ -384,8 +456,18 @@ impl RawIrcTags {
     /// - An empty string if the tag is present but no key is present
     /// - The value associated with the tag, with escape sequences removed
     pub fn get_value_by_str<'a>(&self, src: &'a str, tag: &str) -> Option<Cow<'a, str>> {
-        let found = self.tags.iter().find(|t| t.0.to_string(src) == tag)?;
-        src.get(found.1.clone()).map(unescape_tag_value)
+        let found = self
+            .tags
+            .iter()
+            .find(|t| t.0.as_str(src) == tag)
+            .map(|t| *t.1)
+            .or_else(|| {
+                self.unknown
+                    .iter()
+                    .find(|(k, _)| &src[*k] == tag)
+                    .map(|t| t.1)
+            })?;
+        src.get(found).map(unescape_tag_value)
     }
 
     /// Retrieves the value associated with the given tag.
@@ -394,8 +476,18 @@ impl RawIrcTags {
     /// - An empty string if the tag is present but no key is present
     /// - The value associated with the tag, with escape sequences not removed
     pub fn get_raw_value_by_str<'a>(&self, src: &'a str, tag: &str) -> Option<&'a str> {
-        let found = self.tags.iter().find(|t| t.0.to_string(src) == tag)?;
-        src.get(found.1.clone())
+        let found = self
+            .tags
+            .iter()
+            .find(|t| t.0.as_str(src) == tag)
+            .map(|t| *t.1)
+            .or_else(|| {
+                self.unknown
+                    .iter()
+                    .find(|(k, _)| &src[*k] == tag)
+                    .map(|t| t.1)
+            })?;
+        src.get(found)
     }
 
     pub fn iter<'a>(&'a self, src: &'a str) -> TagsIter<'a> {
@@ -437,14 +529,16 @@ impl RawIrcTags {
 #[derive(Debug, Clone)]
 pub struct TagsIter<'a> {
     src: &'a str,
-    iter: hashbrown::hash_map::Iter<'a, RawTag, std::ops::Range<usize>>,
+    tags: hashbrown::hash_map::Iter<'a, RawTag, Range<usize>>,
+    unknown: core::slice::Iter<'a, (Range<usize>, Range<usize>)>,
 }
 
 impl<'a> TagsIter<'a> {
     fn new(raw: &'a RawIrcTags, src: &'a str) -> Self {
         Self {
             src,
-            iter: raw.tags.iter(),
+            tags: raw.tags.iter(),
+            unknown: raw.unknown.iter(),
         }
     }
 }
@@ -453,15 +547,33 @@ impl<'a> Iterator for TagsIter<'a> {
     type Item = (OwnedTag, &'a str);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter
+        self.tags
             .next()
-            .map(|(rt, range)| (rt.to_owned(self.src), &self.src[range.clone()]))
+            .map(|(rt, range)| (rt.to_owned_tag(self.src), &self.src[*range]))
+            .or_else(|| {
+                self.unknown
+                    .next()
+                    .map(|(k, v)| (RawTag::Unknown(*k).to_owned_tag(self.src), &self.src[*v]))
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::irc_message::tags::{OwnedTag, RawIrcTags, escape_tag_value, unescape_tag_value};
+
+    #[test]
+    fn value_eq() {
+        let source = "buh=321;vip=1;color=#123123";
+        let source2 = "buh=123;vip=1;buh=321;color=#123123";
+
+        let tags =
+            RawIrcTags::new(source, 0, source.len()).expect("failed to parse tags from string");
+        let tags2 =
+            RawIrcTags::new(source2, 0, source2.len()).expect("failed to parse tags from string");
+
+        assert!(tags.value_eq(source, &tags2, source2));
+    }
 
     #[test]
     fn parse_normal() {

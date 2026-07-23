@@ -132,7 +132,7 @@ impl Bot {
                 mut message,
                 reply_id,
             } => {
-                log::debug!("sending {} to {}", &message, &channel_login);
+                log::debug!("sending {} to {}", message, channel_login);
                 if let Some(idx) = conn_pool.get_conn_idx(&channel_login) {
                     let entry = last_sent_msg.entry_ref(&channel_login);
                     entry

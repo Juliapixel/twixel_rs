@@ -129,7 +129,7 @@ impl<A: AuthProvider> Connection<A> {
     pub async fn start(&mut self) -> Result<(), ConnectionError> {
         if self.socket.is_some() {
             warn!("tried starting connection when it was already started");
-            return Err(ConnectionError::AlreadyStarted)?;
+            return Err(ConnectionError::AlreadyStarted);
         }
 
         let (new_socket, _resp) = tokio_tungstenite::connect_async(TWITCH_IRC_URL)

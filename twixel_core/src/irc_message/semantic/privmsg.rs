@@ -3,7 +3,6 @@ use crate::{MessageBuilder, irc_message::tags::OwnedTag, user::ChannelRoles};
 use super::{PrivMsg, util::msg_from_param};
 
 impl PrivMsg {
-    // TODO: treat repeat message avoiders
     /// Text of the message, with invisible and special characters removed
     pub fn message_text(&self) -> &str {
         let msg_param = self
